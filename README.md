@@ -27,4 +27,4 @@ Port/adapter pattern. Audio sources, lyrics providers, LRC parser, and lyrics pu
 
 ## License
 
-AGPL-3.0
+AGPL-3.0-or-later
