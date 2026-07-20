@@ -13,7 +13,6 @@ import { LineList } from "../components/line-list";
 import { KeyHints } from "../components/key-hints";
 import { FilePicker } from "../components/file-picker";
 import { SyncEngine } from "../../core/sync-engine";
-import { msToLrc } from "../../core/time-utils";
 import path from "node:path";
 
 interface EditorScreenProps {
@@ -244,7 +243,7 @@ export function EditorScreen({
       onDocumentChange(syncEngine.document);
       setCurrentIndex(syncEngine.currentIndex);
       if (syncEngine.isComplete) {
-        player.dispose();
+        player.pause();
         setMode("edit");
         setSyncEngine(null);
       }
@@ -253,7 +252,7 @@ export function EditorScreen({
       onDocumentChange(syncEngine.document);
       setCurrentIndex(syncEngine.currentIndex);
       if (syncEngine.isComplete) {
-        player.dispose();
+        player.pause();
         setMode("edit");
         setSyncEngine(null);
       }
@@ -262,7 +261,7 @@ export function EditorScreen({
       onDocumentChange(syncEngine.document);
       setCurrentIndex(syncEngine.currentIndex);
     } else if (key.escape) {
-      player.dispose();
+      player.pause();
       onDocumentChange(syncEngine.document);
       setMode("edit");
       setSyncEngine(null);
@@ -280,7 +279,7 @@ export function EditorScreen({
         setPaused(true);
       }
     } else if (key.escape) {
-      player.dispose();
+      player.pause();
       setMode("edit");
     }
   }

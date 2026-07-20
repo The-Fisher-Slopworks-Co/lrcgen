@@ -138,6 +138,65 @@ describe("EditorScreen", () => {
     expect(frame).toContain("[play]");
   });
 
+  test("esc in play mode pauses instead of disposing, so play works again", async () => {
+    const registry = createDefaultRegistry();
+    const calls: string[] = [];
+    const player = {
+      ...noopPlayer,
+      play: () => { calls.push("play"); },
+      pause: () => { calls.push("pause"); },
+      dispose: () => { calls.push("dispose"); },
+    };
+    const { lastFrame, stdin } = render(
+      <EditorScreen
+        registry={registry}
+        document={makeDoc()}
+        audioRef={{ source: "Local File", id: "/test.mp3", displayName: "test.mp3" }}
+        player={player}
+        onDocumentChange={() => {}}
+        onAudioRefChange={async () => {}}
+        onQuit={() => {}}
+      />
+    );
+    stdin.write("p");
+    await tick();
+    stdin.write(""); // esc
+    await tick();
+    expect(lastFrame()!).toContain("[edit]");
+    stdin.write("p");
+    await tick();
+    expect(lastFrame()!).toContain("[play]");
+    expect(calls).toEqual(["play", "pause", "play"]);
+  });
+
+  test("esc in sync mode pauses instead of disposing", async () => {
+    const registry = createDefaultRegistry();
+    const calls: string[] = [];
+    const player = {
+      ...noopPlayer,
+      play: () => { calls.push("play"); },
+      pause: () => { calls.push("pause"); },
+      dispose: () => { calls.push("dispose"); },
+    };
+    const { lastFrame, stdin } = render(
+      <EditorScreen
+        registry={registry}
+        document={makeDoc()}
+        audioRef={{ source: "Local File", id: "/test.mp3", displayName: "test.mp3" }}
+        player={player}
+        onDocumentChange={() => {}}
+        onAudioRefChange={async () => {}}
+        onQuit={() => {}}
+      />
+    );
+    stdin.write("y");
+    await tick();
+    stdin.write(""); // esc
+    await tick();
+    expect(lastFrame()!).toContain("[edit]");
+    expect(calls).toEqual(["play", "pause"]);
+  });
+
   test("q key calls onQuit", () => {
     const registry = createDefaultRegistry();
     let quit = false;

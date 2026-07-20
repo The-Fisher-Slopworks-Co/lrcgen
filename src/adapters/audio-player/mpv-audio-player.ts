@@ -1,6 +1,6 @@
 import type { AudioPlayer } from "../../ports/audio-player";
 import type { Subprocess } from "bun";
-import { unlinkSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
 
 export class MpvAudioPlayer implements AudioPlayer {
   private process: Subprocess | null = null;
@@ -28,6 +28,7 @@ export class MpvAudioPlayer implements AudioPlayer {
       "--no-video",
       "--pause",
       "--idle=once",
+      "--keep-open=yes",
       "--input-terminal=no",
       "--really-quiet",
       `--input-ipc-server=${this.socketPath}`,
@@ -36,10 +37,16 @@ export class MpvAudioPlayer implements AudioPlayer {
 
     await this.waitForSocket();
     await this.connectSocket();
+    this.sendCommand("observe_property", 1, "eof-reached");
 
-    const duration = await this.getProperty("duration");
-    if (typeof duration === "number") {
-      this._duration = Math.round(duration * 1000);
+    // Duration is unavailable until mpv finishes loading the file; poll briefly.
+    for (let i = 0; i < 40; i++) {
+      const duration = await this.getProperty("duration");
+      if (typeof duration === "number") {
+        this._duration = Math.round(duration * 1000);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 50));
     }
   }
 
@@ -109,18 +116,18 @@ export class MpvAudioPlayer implements AudioPlayer {
     this.stopTicker();
     this.clearSegmentTimer();
     this._playing = false;
-    this.sendCommand("quit");
-    setTimeout(() => {
-      if (this.process) { this.process.kill(); this.process = null; }
-      try { unlinkSync(this.socketPath); } catch {}
-    }, 200);
+    this.socket?.end();
+    this.socket = null;
+    if (this.process) { this.process.kill(); this.process = null; }
+    try { unlinkSync(this.socketPath); } catch {}
   }
 
   // --- IPC via Unix socket ---
 
   private async waitForSocket(): Promise<void> {
+    // Bun.file().exists() only reports regular files, never sockets — use existsSync.
     for (let i = 0; i < 100; i++) {
-      if (await Bun.file(this.socketPath).exists()) return;
+      if (existsSync(this.socketPath)) return;
       await new Promise((r) => setTimeout(r, 50));
     }
   }
@@ -145,6 +152,13 @@ export class MpvAudioPlayer implements AudioPlayer {
                 const resolve = self.pendingRequests.get(msg.request_id)!;
                 self.pendingRequests.delete(msg.request_id);
                 resolve(msg.data);
+              }
+              // With --keep-open mpv pauses at EOF instead of quitting; track it
+              if (msg.event === "property-change" && msg.name === "eof-reached" && msg.data === true) {
+                self._playing = false;
+                self.stopTicker();
+                if (self._duration > 0) self._position = self._duration;
+                self.notifyPosition();
               }
               // Handle end-of-file event
               if (msg.event === "end-file") {
