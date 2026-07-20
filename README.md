@@ -21,6 +21,18 @@ bun install
 bun run start
 ```
 
+To install the `lrcgen` command globally, link the package:
+
+```bash
+bun link
+```
+
+Then run it from anywhere:
+
+```bash
+lrcgen
+```
+
 ## Architecture
 
 Port/adapter pattern. Audio sources, lyrics providers, LRC parser, and lyrics publishers are swappable interfaces. Ships with ffplay for audio, clipboard/LRCLIB for lyrics, and LRCLIB for publishing.
