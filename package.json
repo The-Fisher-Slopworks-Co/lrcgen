@@ -4,6 +4,9 @@
   "type": "module",
   "private": true,
   "license": "AGPL-3.0-or-later",
+  "bin": {
+    "lrcgen": "src/index.ts"
+  },
   "scripts": {
     "start": "bun run src/index.ts",
     "test": "bun test"
