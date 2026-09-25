@@ -33,9 +33,28 @@ Then run it from anywhere:
 lrcgen
 ```
 
+## AI transcription (optional)
+
+The editor can transcribe lyrics with per-line and per-word timings straight from the audio file: vocals are separated with Demucs, transcribed by a Gemini model through an OpenAI-compatible API (OpenRouter by default), and force-aligned back to the vocals. Pick "Transcribe from audio (AI)" in the lyrics menu (`l`), or accept the prompt shown after selecting an audio file with no matching `.lrc`.
+
+Requirements:
+
+- [uv](https://docs.astral.sh/uv/) in `PATH` — the pipeline runs as an embedded Python script via `uv run`. The first run downloads several GB of ML dependencies and models.
+- An API key, set in Settings (start screen, or `S` in the editor) or via `OPENROUTER_API_KEY`/`OPENAI_API_KEY`.
+
+## Karaoke (word timings)
+
+Word timings are saved to a second file, `song.enhanced.lrc` ([Enhanced LRC](https://en.wikipedia.org/wiki/LRC_(file_format))), next to the plain `song.lrc`, so players without word support keep working. Opening `song.lrc` picks them back up.
+
+- AI transcription fills them in.
+- `Y` syncs by hand: tap space on each word. `-`/`+` slow playback down (mpv only).
+- `w` fixes single words: `←→` picks one, `,`/`.` shifts it, `⏎` plays it.
+
+Lines with word timings are marked `*`; during playback (`p`) sung words light up.
+
 ## Architecture
 
-Port/adapter pattern. Audio sources, lyrics providers, LRC parser, and lyrics publishers are swappable interfaces. Ships with ffplay for audio, clipboard/LRCLIB for lyrics, and LRCLIB for publishing.
+Port/adapter pattern. Audio sources, lyrics providers, transcribers, LRC parser, and lyrics publishers are swappable interfaces. Ships with ffplay for audio, clipboard/LRCLIB for lyrics, a Demucs + Gemini + forced-alignment transcriber, and LRCLIB for publishing.
 
 ## License
 

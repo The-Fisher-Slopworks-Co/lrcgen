@@ -7,12 +7,13 @@ import { createDocument } from "../core/lrc-document";
 import { StartScreen } from "./screens/start-screen";
 import { ImportScreen } from "./screens/import-screen";
 import { EditorScreen } from "./screens/edit-screen";
+import { SettingsScreen } from "./screens/settings-screen";
 import { BaseAudioPlayer } from "../adapters/audio-player/base-audio-player";
 import { MpvAudioPlayer } from "../adapters/audio-player/mpv-audio-player";
 import { detectMatchingAudio } from "../core/auto-detect-audio";
 import { LocalAudioSource } from "../adapters/audio-source/local-audio-source";
 
-type Screen = { name: "start" } | { name: "import" } | { name: "editor" };
+type Screen = { name: "start" } | { name: "import" } | { name: "editor" } | { name: "settings" };
 
 interface AppProps {
   registry: Registry;
@@ -48,8 +49,10 @@ export function App({ registry, initialDocument, initialScreen }: AppProps) {
           onSelect={(action) => {
             if (action === "create") {
               setScreen({ name: "editor" });
-            } else {
+            } else if (action === "import") {
               setScreen({ name: "import" });
+            } else {
+              setScreen({ name: "settings" });
             }
           }}
         />
@@ -71,6 +74,14 @@ export function App({ registry, initialDocument, initialScreen }: AppProps) {
             setScreen({ name: "editor" });
           }}
           onCancel={() => setScreen({ name: "start" })}
+        />
+      );
+
+    case "settings":
+      return (
+        <SettingsScreen
+          settingsStore={registry.settingsStore}
+          onDone={() => setScreen({ name: "start" })}
         />
       );
 

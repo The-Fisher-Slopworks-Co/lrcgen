@@ -41,6 +41,12 @@ describe("lrcToMs", () => {
   test("parses single-digit hundredths", () => {
     expect(lrcToMs("00:05.03")).toBe(5030);
   });
+  test("parses milliseconds", () => {
+    expect(lrcToMs("00:05.034")).toBe(5034);
+  });
+  test("parses tenths", () => {
+    expect(lrcToMs("00:05.3")).toBe(5300);
+  });
 });
 
 describe("formatPosition", () => {

@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import type { LrcParser } from "../../ports/lrc-parser";
 import type { LrcDocument } from "../../core/lrc-document";
 import { FilePicker } from "../components/file-picker";
+import { readLrcFile } from "../../adapters/lrc-files";
 
 interface ImportScreenProps {
   lrcParser: LrcParser;
@@ -20,8 +21,7 @@ export function ImportScreen({ lrcParser, onImport, onCancel }: ImportScreenProp
         extensions={[".lrc"]}
         onSelect={async (filePath) => {
           try {
-            const content = await Bun.file(filePath).text();
-            onImport(lrcParser.parse(content), filePath);
+            onImport(await readLrcFile(filePath, lrcParser), filePath);
           } catch (e) {
             setError(`Failed to read file: ${e}`);
           }

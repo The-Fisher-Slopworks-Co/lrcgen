@@ -7,5 +7,7 @@ export interface AudioPlayer {
   getCurrentPosition(): number;
   getDuration(): number;
   onPosition(callback: (ms: number) => void): () => void;
+  /** Playback rate (1 = normal); positions stay in song time. Players that can't do it leave it out. */
+  setSpeed?(rate: number): void;
   dispose(): void;
 }

@@ -9,6 +9,7 @@ export class MpvAudioPlayer implements AudioPlayer {
   private _duration: number = 0;
   private _position: number = 0;
   private _playing: boolean = false;
+  private _speed: number = 1;
   private positionCallbacks: Set<(ms: number) => void> = new Set();
   private ticker: ReturnType<typeof setInterval> | null = null;
   private _segmentEndMs: number | null = null;
@@ -73,7 +74,7 @@ export class MpvAudioPlayer implements AudioPlayer {
       this._playing = false;
       this.stopTicker();
       this.notifyPosition();
-    }, toMs - fromMs);
+    }, (toMs - fromMs) / this._speed);
   }
 
   pause(): void {
@@ -94,6 +95,11 @@ export class MpvAudioPlayer implements AudioPlayer {
 
   seek(ms: number): void {
     this.play(ms);
+  }
+
+  setSpeed(rate: number): void {
+    this._speed = rate;
+    this.sendCommand("set_property", "speed", rate);
   }
 
   getCurrentPosition(): number {

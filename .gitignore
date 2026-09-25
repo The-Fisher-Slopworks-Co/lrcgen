@@ -27,6 +27,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
+# python bytecode (from running the embedded transcribe.py directly)
+__pycache__/
+*.pyc
+
 # IntelliJ based IDEs
 .idea
 

@@ -3,25 +3,16 @@ import type { AudioPlayer } from "../../ports/audio-player";
 import { MpvAudioPlayer } from "../audio-player/mpv-audio-player";
 import { FfplayAudioPlayer } from "../audio-player/ffplay-audio-player";
 import path from "node:path";
+import { commandExists } from "../process-utils";
 
 export type PlayerBackend = "mpv" | "ffplay";
 
 let detectedBackend: PlayerBackend | null = null;
 
-async function checkCommand(cmd: string): Promise<boolean> {
-  try {
-    const proc = Bun.spawn(["which", cmd], { stdout: "ignore", stderr: "ignore" });
-    await proc.exited;
-    return proc.exitCode === 0;
-  } catch {
-    return false;
-  }
-}
-
 export async function detectBackend(): Promise<PlayerBackend | null> {
   if (detectedBackend) return detectedBackend;
-  if (await checkCommand("mpv")) { detectedBackend = "mpv"; return "mpv"; }
-  if (await checkCommand("ffplay")) { detectedBackend = "ffplay"; return "ffplay"; }
+  if (await commandExists("mpv")) { detectedBackend = "mpv"; return "mpv"; }
+  if (await commandExists("ffplay")) { detectedBackend = "ffplay"; return "ffplay"; }
   return null;
 }
 

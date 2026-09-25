@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import SelectInput from "ink-select-input";
 import { KeyHints } from "../components/key-hints";
 
-type StartAction = "create" | "import";
+type StartAction = "create" | "import" | "settings";
 
 interface StartScreenProps {
   onSelect: (action: StartAction) => void;
@@ -12,6 +12,7 @@ interface StartScreenProps {
 const items = [
   { label: "Create new LRC", value: "create" as const },
   { label: "Import existing LRC", value: "import" as const },
+  { label: "Settings", value: "settings" as const },
 ];
 
 export function StartScreen({ onSelect }: StartScreenProps) {

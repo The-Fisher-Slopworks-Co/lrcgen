@@ -1,7 +1,8 @@
 import type { LrcParser } from "../../ports/lrc-parser";
 import type { LrcDocument, LrcLine, LrcMetadata } from "../../core/lrc-document";
 import { createDocument } from "../../core/lrc-document";
-import { msToLrc, lrcToMs } from "../../core/time-utils";
+import { msToLrc, lrcToMs, LRC_TIME_PATTERN } from "../../core/time-utils";
+import { parseWordTags } from "./word-tags";
 
 const METADATA_TAGS: Record<string, keyof LrcMetadata> = {
   ar: "artist",
@@ -14,6 +15,8 @@ const REVERSE_TAGS: Record<string, string> = {
   title: "ti",
   album: "al",
 };
+
+const LINE_RE = new RegExp(`^\\[(${LRC_TIME_PATTERN})\\](.*)$`);
 
 export class SimpleLrcParser implements LrcParser {
   parse(content: string): LrcDocument {
@@ -35,14 +38,15 @@ export class SimpleLrcParser implements LrcParser {
         continue;
       }
 
-      const lineMatch = trimmed.match(/^\[(\d{2,}:\d{2}\.\d{2})\]\s?(.*)$/);
+      // Word tags from enhanced files are read too, so they never leak into the text.
+      const lineMatch = trimmed.match(LINE_RE);
       if (lineMatch) {
         const timestamp = lrcToMs(lineMatch[1]!);
-        lines.push({ timestamp, text: lineMatch[2]!.trim() });
+        lines.push({ timestamp, ...parseWordTags(lineMatch[2]!) });
         continue;
       }
 
-      lines.push({ timestamp: null, text: trimmed });
+      lines.push({ timestamp: null, ...parseWordTags(trimmed) });
     }
 
     const doc = createDocument(metadata);
@@ -59,13 +63,13 @@ export class SimpleLrcParser implements LrcParser {
     }
     parts.push(`[tool:${doc.metadata.tool}]`);
     for (const line of doc.lines) {
-      const text = line.text.trim();
-      if (line.timestamp !== null) {
-        parts.push(`[${msToLrc(line.timestamp)}] ${text}`);
-      } else {
-        parts.push(text);
-      }
+      parts.push(this.formatLine(line));
     }
     return parts.join("\n");
+  }
+
+  protected formatLine(line: LrcLine): string {
+    const text = line.text.trim();
+    return line.timestamp !== null ? `[${msToLrc(line.timestamp)}] ${text}` : text;
   }
 }

@@ -24,6 +24,11 @@ describe("detectMatchingAudio", () => {
     expect(result).toBe(`${TEST_DIR}/song.mp3`);
   });
 
+  test("finds audio for an enhanced lrc companion", async () => {
+    const result = await detectMatchingAudio(`${TEST_DIR}/song.enhanced.lrc`);
+    expect(result).toBe(`${TEST_DIR}/song.mp3`);
+  });
+
   test("returns null when no matching audio exists", async () => {
     const result = await detectMatchingAudio(`${TEST_DIR}/alone.lrc`);
     expect(result).toBeNull();
