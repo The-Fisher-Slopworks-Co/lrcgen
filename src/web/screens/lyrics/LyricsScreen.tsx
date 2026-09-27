@@ -1,5 +1,5 @@
 // 2 · Get lyrics (Text board): paste, search LRCLIB, load a file, or transcribe (the Recognize view,
-// route param `transcribe=1`). Whatever is used goes through core `replaceLyrics`, so timings already set
+// route param `transcribe=1`); once there are lyrics, sync them to the vocals (the same view, `sync=1`). Whatever is used goes through core `replaceLyrics`, so timings already set
 // are kept for lines that still match.
 // Keys: Ctrl V paste · Ctrl F search · Ctrl O load a file · ↑/↓ pick a result · Enter use it (Ctrl Enter in the text box).
 
@@ -21,7 +21,9 @@ import "./lyrics.css";
 
 export function LyricsScreen() {
   const params = useStep()?.params ?? {};
-  return params.transcribe === "1" ? <RecognizeView /> : <LyricsSources />;
+  if (params.transcribe === "1") return <RecognizeView kind="transcribe" />;
+  if (params.sync === "1") return <RecognizeView kind="align" />;
+  return <LyricsSources />;
 }
 
 type Source = "paste" | "search" | "file";
@@ -60,6 +62,7 @@ function LyricsSources() {
   const app = useApp();
   const settings = useSettings();
   const transcribing = useRunningJob("transcribe");
+  const syncing = useRunningJob("align");
   const trackMs = track?.durationMs ?? null;
 
   const [source, setSource] = useState<Source>("search");
@@ -130,6 +133,14 @@ function LyricsSources() {
       await startJob("transcribe");
     }
     goToStep("lyrics", { transcribe: "1" });
+  };
+
+  const syncLyrics = async () => {
+    if (app?.capabilities.uv && lyricLineCount(doc.lines) > 0 && !runningJob("align")) {
+      setStarting(true);
+      await startJob("align");
+    }
+    goToStep("lyrics", { sync: "1" });
   };
 
   // Ctrl V anywhere on the screen: the paste event carries the text without asking for clipboard permission.
@@ -207,6 +218,13 @@ function LyricsSources() {
         <SourceCard pressed={false} icon={<WaveIcon />} title="Transcribe automatically" onClick={() => void transcribe()} disabled={starting}>
           {transcribing ? "Running now — open it to see how far it got." : "Comes with line and word timings. Slow: a minute to several."}
         </SourceCard>
+        {(existing > 0 || syncing) && (
+          <SourceCard pressed={false} icon={<SyncIcon />} title="Sync my lyrics" onClick={() => void syncLyrics()} disabled={starting}>
+            {syncing
+              ? "Running now — open it to see how far it got."
+              : `Line and word timings for the ${plural(existing, "line")} you have. No API key needed.`}
+          </SourceCard>
+        )}
         <input ref={fileInput} type="file" accept=".lrc,.txt" hidden onChange={(e) => void onFile(e)} />
         <div style={{ flexGrow: 1 }} />
         <p className="note">You can swap the lyrics later — timings you've already set are kept for lines that still match.</p>
@@ -306,6 +324,14 @@ function WaveIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
       <path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2" />
+    </svg>
+  );
+}
+
+function SyncIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+      <path d="M4 6h10M4 12h7M4 18h10M17 9v6M20 11v2" />
     </svg>
   );
 }

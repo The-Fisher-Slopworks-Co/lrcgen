@@ -109,3 +109,24 @@ export function adoptWordTimings(doc: LrcDocument, source: LrcLine[]): { doc: Lr
   });
   return { doc: { ...doc, lines }, adopted };
 }
+
+/**
+ * Puts the timings of a lyrics sync ("align" job) onto the lines of `doc`, which the sync was run on.
+ * Lines are matched like adoptWordTimings (so edits made while it ran don't shift anything). A matched line
+ * takes the new start and word timings; if only its start was found, its old word timings go too, as they'd
+ * no longer fit. Returns how many lines got a start.
+ */
+export function applyAlignment(doc: LrcDocument, source: LrcLine[]): { doc: LrcDocument; synced: number } {
+  const matches = matchInOrder(doc.lines, source, (line) => normalize(line.text));
+  let synced = 0;
+  const lines = doc.lines.map((line, i) => {
+    const from = matches[i] == null ? undefined : source[matches[i]!];
+    if (!from || from.timestamp === null) return line;
+    synced++;
+    const words = hasWordTimings(from) ? adoptedWords(line, from) : null;
+    if (words) return timingsWithText({ ...from, words }, line);
+    const { words: _words, end: _end, ...rest } = line;
+    return { ...rest, timestamp: from.timestamp };
+  });
+  return { doc: { ...doc, lines }, synced };
+}

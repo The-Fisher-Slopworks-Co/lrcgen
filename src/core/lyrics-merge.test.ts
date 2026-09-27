@@ -1,7 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { createDocument, linesFromText } from "./lrc-document";
 import type { LrcDocument, LrcLine } from "./lrc-document";
-import { replaceLyrics, adoptWordTimings } from "./lyrics-merge";
+import { replaceLyrics, adoptWordTimings, applyAlignment } from "./lyrics-merge";
 
 function docOf(...lines: LrcLine[]): LrcDocument {
   return { ...createDocument({ title: "Song" }), lines };
@@ -155,5 +155,31 @@ describe("adoptWordTimings", () => {
     expect(next.lines[0]).toEqual({ timestamp: 100, text: "Intro" });
     expect(next.lines[1]!.timestamp).toBe(3000);
     expect(next.lines[2]).toEqual({ timestamp: null, text: "never gonna give" });
+  });
+});
+
+describe("applyAlignment", () => {
+  test("takes line starts and word timings, keeping the document's text and leaving unmatched lines alone", () => {
+    const doc = docOf(
+      { timestamp: 100, text: "Never gonna give" },
+      { timestamp: null, text: "" },
+      { timestamp: null, text: "[Chorus]" },
+      wordTimed,
+      { timestamp: 7000, text: "Edited while syncing" },
+    );
+    const source: LrcLine[] = [
+      { timestamp: 900, text: "Never gonna give", words: [{ start: 900, text: "Never " }, { start: 1400, text: "gonna " }, { start: 1900, text: "give" }], end: 2400 },
+      { timestamp: null, text: "[Chorus]" },
+      { timestamp: 3000, text: "Never gonna give" },
+      { timestamp: 5000, text: "Original line" },
+    ];
+    const { doc: next, synced } = applyAlignment(doc, source);
+    expect(synced).toBe(2);
+    expect(next.lines[0]).toEqual(source[0]!);
+    expect(next.lines[1]).toEqual({ timestamp: null, text: "" });
+    expect(next.lines[2]).toEqual({ timestamp: null, text: "[Chorus]" });
+    // Only the start was found: the old word timings would no longer fit.
+    expect(next.lines[3]).toEqual({ timestamp: 3000, text: "Never gonna give" });
+    expect(next.lines[4]).toEqual({ timestamp: 7000, text: "Edited while syncing" });
   });
 });

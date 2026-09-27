@@ -21,7 +21,7 @@ export function toggleVocals(): void {
     player.setTrack(state.track === "vocals" ? "mix" : "vocals");
     return;
   }
-  if (runningJob("separate") || runningJob("transcribe")) {
+  if (runningJob("separate") || runningJob("transcribe") || runningJob("align")) {
     toast("Still separating the vocals — V works once that's done");
     return;
   }

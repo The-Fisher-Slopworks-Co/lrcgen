@@ -25,7 +25,9 @@ one object per line:
         "words": [{"start": <ms>, "text": "..."}], "end": <ms>}], "rawLyrics": "..."}
 
 "words" and "end" are only present on timed lines. With --separate-only the
-result has no lines and empty rawLyrics.
+result has no lines and empty rawLyrics. With --lyrics-file the lyrics are
+read from that file instead of transcribed (no "api" stage, no API key), and
+rawLyrics is the file's text.
     {"type": "error", "stage": "init"|"demucs"|"api"|"align", "message": "..."}
 
 The vocal stem is written losslessly to --vocals and shifted to be
@@ -397,6 +399,10 @@ def main() -> None:
         help="only separate the vocals: no transcription, the result has no lines",
     )
     parser.add_argument(
+        "--lyrics-file", type=Path,
+        help="align these lyrics (UTF-8, one line per line) instead of transcribing",
+    )
+    parser.add_argument(
         "--base-url", default=os.environ.get("OPENAI_BASE_URL", DEFAULT_BASE_URL),
         help="OpenAI-compatible API base URL (default: $OPENAI_BASE_URL or OpenRouter)",
     )
@@ -412,12 +418,14 @@ def main() -> None:
     stage("init", "starting ...")
 
     api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
-    if not api_key and not args.separate_only:
+    if not api_key and not args.separate_only and not args.lyrics_file:
         fail("init", "no API key: set OPENAI_API_KEY or OPENROUTER_API_KEY")
     if not shutil.which("ffmpeg"):
         fail("init", "ffmpeg not found in PATH (required by demucs to decode audio)")
     if not args.audio.is_file():
         fail("init", f"file not found: {args.audio}")
+    if args.lyrics_file and not args.lyrics_file.is_file():
+        fail("init", f"file not found: {args.lyrics_file}")
 
     current = "demucs"
     try:
@@ -425,8 +433,11 @@ def main() -> None:
         if args.separate_only:
             emit({"type": "result", "lines": [], "rawLyrics": ""})
             return
-        current = "api"
-        lyrics = transcribe(vocals, args.model, args.base_url, api_key)
+        if args.lyrics_file:
+            lyrics = args.lyrics_file.read_text(encoding="utf-8")
+        else:
+            current = "api"
+            lyrics = transcribe(vocals, args.model, args.base_url, api_key)
         current = "align"
         lines = build_lines(vocals, lyrics, args.align_lang)
     except Exception as e:

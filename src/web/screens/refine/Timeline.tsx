@@ -507,14 +507,19 @@ function EdgeBlock({ left, width, top, text, onSelect }: { left: number; width: 
 function SeparateOffer({ band }: { band: { y: number; h: number } }) {
   const separateJob = useRunningJob("separate");
   const transcribeJob = useRunningJob("transcribe");
-  const separating = separateJob ?? transcribeJob;
+  const alignJob = useRunningJob("align");
+  const separating = separateJob ?? transcribeJob ?? alignJob;
   const uv = useApp()?.capabilities.uv ?? false;
   return (
     <div className="refine-offer" style={{ top: band.y, height: band.h }} onPointerDown={(e) => e.stopPropagation()}>
       {separating ? (
         <span className="progress">
           <Icon.Spinner size={16} />
-          {separating.kind === "separate" ? "Separating vocals" : "Transcribing (separates the vocals too)"}
+          {separating.kind === "separate"
+            ? "Separating vocals"
+            : separating.kind === "align"
+              ? "Syncing lyrics (separates the vocals too)"
+              : "Transcribing (separates the vocals too)"}
           {separating.progress !== null ? ` · ${percent(separating.progress)}` : "…"}
           <span className="message">{separating.message}</span>
         </span>

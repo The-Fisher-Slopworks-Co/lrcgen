@@ -78,8 +78,8 @@ beforeAll(async () => {
 
 afterAll(() => t.close());
 
-const start = async (kind: string, audioPath: string) =>
-  (await (await t.api("/api/jobs", { method: "POST", json: { kind, audioPath } })).json()) as JobState;
+const start = async (kind: string, audioPath: string, lyrics?: string) =>
+  (await (await t.api("/api/jobs", { method: "POST", json: { kind, audioPath, lyrics } })).json()) as JobState;
 
 describe("jobs", () => {
   test("transcribe: progress streams over SSE, the result lands in the transcripts", async () => {
@@ -147,6 +147,20 @@ describe("jobs", () => {
     expect(events.at(-1)).toMatchObject({ type: "done", job: { status: "cancelled" } });
   });
 
+  test("align syncs the given lyrics and returns the lines on the job, leaving the transcript alone", async () => {
+    const before = await (await t.api(`/api/transcripts/${draftIdFor(song)}`)).json();
+    const job = await start("align", song, "One\nTwo");
+    expect(job).toMatchObject({ kind: "align", status: "running", lines: null });
+    const call = await fake.next();
+    expect(call.options).toMatchObject({ separateOnly: false, lyrics: "One\nTwo" });
+    const lines = [{ timestamp: 500, text: "One" }, { timestamp: 1500, text: "Two" }];
+    call.resolve({ success: true, lines, rawLyrics: "One\nTwo" });
+    await Bun.sleep(5);
+    const [state] = (await (await t.api(`/api/jobs${q({ audioPath: song })}`)).json()) as JobState[];
+    expect(state).toMatchObject({ id: job.id, status: "done", lines });
+    expect(await (await t.api(`/api/transcripts/${draftIdFor(song)}`)).json()).toEqual(before);
+  });
+
   test("separate finishes at once when the stem is cached", async () => {
     await Bun.write(path.join(t.dirs.cacheDir, "stems", draftIdFor(other), "vocals.flac"), "stem");
     const job = await start("separate", other);
@@ -158,6 +172,8 @@ describe("jobs", () => {
 
   test("validates requests", async () => {
     expect((await t.api("/api/jobs", { method: "POST", json: { kind: "dance", audioPath: song } })).status).toBe(400);
+    expect((await t.api("/api/jobs", { method: "POST", json: { kind: "align", audioPath: song } })).status).toBe(400);
+    expect((await t.api("/api/jobs", { method: "POST", json: { kind: "align", audioPath: song, lyrics: "  " } })).status).toBe(400);
     expect((await t.api("/api/jobs", { method: "POST", json: { kind: "separate", audioPath: path.join(t.music, "x.wav") } })).status).toBe(404);
     expect((await t.api("/api/jobs/nope/events")).status).toBe(404);
     expect((await t.api("/api/jobs/nope", { method: "DELETE" })).status).toBe(404);

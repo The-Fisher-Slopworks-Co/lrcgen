@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { elapsed, segmentFill, stageIndex, stageState } from "./stages";
+import { elapsed, segmentFill, stageIndex, stageState, SYNC_STAGE_ORDER } from "./stages";
 
 describe("stageState", () => {
   test("before, at and after the running stage", () => {
@@ -35,4 +35,12 @@ test("elapsed", () => {
   expect(elapsed(0, 0)).toBe("0:00");
   expect(elapsed(0, 72_400)).toBe("1:12");
   expect(elapsed(1000, 0)).toBe("0:00");
+});
+
+describe("a lyrics sync's three stages", () => {
+  test("skip recognition", () => {
+    expect(stageIndex("align", SYNC_STAGE_ORDER)).toBe(2);
+    expect(segmentFill({ status: "running", stage: "align", progress: 0.5 }, SYNC_STAGE_ORDER)).toEqual([1, 1, 0.5]);
+    expect(stageState({ status: "error", stage: "align" }, 2, SYNC_STAGE_ORDER)).toBe("failed");
+  });
 });

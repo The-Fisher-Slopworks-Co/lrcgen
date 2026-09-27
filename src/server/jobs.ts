@@ -22,14 +22,22 @@ export interface JobManagerDeps {
 
 type Listener = (event: JobEvent) => void;
 
+const DONE_MESSAGES: Record<JobKind, string> = {
+  transcribe: "Transcription finished",
+  align: "Lyrics synced",
+  separate: "Vocals separated",
+};
+
 interface Job {
   state: JobState;
+  /** What an "align" job syncs. */
+  lyrics?: string;
   controller: AbortController;
   listeners: Set<Listener>;
   settled: Promise<void>;
 }
 
-/** Transcription and vocal separation jobs; at most one running job per (kind, track). */
+/** Transcription, lyrics sync and vocal separation jobs; at most one running job per (kind, track). */
 export class JobManager {
   private jobs = new Map<string, Job>();
   private now: () => number;
@@ -57,7 +65,8 @@ export class JobManager {
     return this.jobs.get(id)?.state ?? null;
   }
 
-  start(kind: JobKind, audioPath: string): JobState {
+  /** `lyrics` is what an "align" job syncs. */
+  start(kind: JobKind, audioPath: string, lyrics?: string): JobState {
     this.prune();
     for (const job of this.jobs.values()) {
       const s = job.state;
@@ -77,7 +86,9 @@ export class JobManager {
         error: null,
         startedAt: this.now(),
         finishedAt: null,
+        lines: null,
       },
+      lyrics: kind === "align" ? lyrics : undefined,
       controller: new AbortController(),
       listeners: new Set(),
       settled: Promise.resolve(),
@@ -150,6 +161,7 @@ export class JobManager {
         audioPath,
         vocalsPath,
         separateOnly: kind === "separate",
+        lyrics: job.lyrics,
         settings: await this.deps.transcriptionSettings(),
         signal,
         onProgress: (event) => {
@@ -171,8 +183,9 @@ export class JobManager {
         });
       }
       this.finish(job, "done", null, {
-        message: kind === "transcribe" ? "Transcription finished" : "Vocals separated",
+        message: DONE_MESSAGES[kind],
         progress: 1,
+        lines: kind === "align" ? (result.lines ?? []) : null,
       });
     } catch (e) {
       if (signal.aborted) return;

@@ -15,7 +15,9 @@ out({ type: "stage", stage: "init", message: "starting ..." });
 await Bun.sleep(20);
 process.stderr.write("Downloading something the script printed\\n");
 out({ type: "stage", stage: "demucs", message: "separating", progress: 0.25 });
-out({ type: "result", lines: [{ timestamp: 1, text: JSON.stringify(args) }], rawLyrics: process.env.OPENAI_API_KEY ?? "" });
+const lyricsFile = args[args.indexOf("--lyrics-file") + 1];
+const raw = args.includes("--lyrics-file") ? await Bun.file(lyricsFile).text() : (process.env.OPENAI_API_KEY ?? "");
+out({ type: "result", lines: [{ timestamp: 1, text: JSON.stringify(args) }], rawLyrics: raw });
 `;
 
 let dir: string;
@@ -69,6 +71,21 @@ describe("PythonTranscriber", () => {
       settings: { ...settings, apiKey: "" },
     });
     expect(JSON.parse(result.lines![0]!.text)).toEqual(["/music/song.flac", "--vocals", path.join(dir, "v.flac"), "--separate-only"]);
+  });
+
+  test("aligning given lyrics needs no API key and passes them in a file that is removed afterwards", async () => {
+    const result = await transcriber().transcribe({
+      audioPath: "/music/song.flac",
+      vocalsPath: path.join(dir, "v.flac"),
+      lyrics: "Первая строка\nSecond line",
+      settings: { ...settings, apiKey: "" },
+    });
+    expect(result.success).toBe(true);
+    const args = JSON.parse(result.lines![0]!.text) as string[];
+    const lyricsFile = args[args.indexOf("--lyrics-file") + 1]!;
+    expect(args).toEqual(["/music/song.flac", "--vocals", path.join(dir, "v.flac"), "--lyrics-file", lyricsFile, "--align-lang", "eng"]);
+    expect(result.rawLyrics).toBe("Первая строка\nSecond line");
+    expect(await Bun.file(lyricsFile).exists()).toBe(false);
   });
 
   test("transcription without an API key fails up front", async () => {

@@ -31,6 +31,8 @@ Wireless headphones play late. Calibrate once from the latency badge in the foot
 
 lrcgen can transcribe the lyrics with line and word timings for you. It needs [uv](https://docs.astral.sh/uv/) and ffmpeg in `PATH`, plus an API key for an OpenAI-compatible service, OpenRouter by default. Set the key in Settings, or with `OPENROUTER_API_KEY` or `OPENAI_API_KEY`. The first run downloads several GB of dependencies and models.
 
+If you already have the lyrics, **Sync my lyrics** on the Lyrics step lines them up with the vocals and gives every line and word a start time, keeping your text as it is. It needs uv and ffmpeg but no API key.
+
 ## Files
 
 - Drafts: `~/.local/share/lrcgen`

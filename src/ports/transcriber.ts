@@ -15,6 +15,8 @@ export interface TranscribeOptions {
   vocalsPath: string;
   /** Stop after separating the vocals: no transcription, the result has no lines. */
   separateOnly?: boolean;
+  /** Align these lyrics (one line per line) instead of transcribing them: no API call, no API key needed. */
+  lyrics?: string;
   settings: TranscriptionSettings;
   onProgress?: (event: TranscribeProgressEvent) => void;
   signal?: AbortSignal;

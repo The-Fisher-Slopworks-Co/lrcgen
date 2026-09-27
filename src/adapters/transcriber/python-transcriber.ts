@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import transcribeScript from "./transcribe.py" with { type: "text" };
 import type { Transcriber, TranscribeOptions, TranscribeResult } from "../../ports/transcriber";
@@ -62,11 +62,12 @@ export class PythonTranscriber implements Transcriber {
         error: "uv not found in PATH. Install it from https://docs.astral.sh/uv/ to use transcription.",
       };
     }
-    const { settings, separateOnly } = options;
-    if (!separateOnly && !settings.apiKey) {
+    const { settings, separateOnly, lyrics } = options;
+    if (!separateOnly && lyrics === undefined && !settings.apiKey) {
       return { success: false, error: "No API key configured. Add one in Settings or set OPENROUTER_API_KEY." };
     }
 
+    let lyricsPath: string | null = null;
     try {
       const scriptPath = path.join(this.cacheDir, "transcribe.py");
       await mkdir(this.cacheDir, { recursive: true });
@@ -76,7 +77,11 @@ export class PythonTranscriber implements Transcriber {
 
       const args = [options.audioPath, "--vocals", options.vocalsPath];
       if (separateOnly) args.push("--separate-only");
-      else args.push("--base-url", settings.baseUrl, "--model", settings.model, "--align-lang", settings.alignLang);
+      else if (lyrics !== undefined) {
+        lyricsPath = path.join(this.cacheDir, `lyrics-${crypto.randomUUID()}.txt`);
+        await Bun.write(lyricsPath, lyrics);
+        args.push("--lyrics-file", lyricsPath, "--align-lang", settings.alignLang);
+      } else args.push("--base-url", settings.baseUrl, "--model", settings.model, "--align-lang", settings.alignLang);
 
       const proc = Bun.spawn([...this.command(scriptPath), ...args], {
         stdout: "pipe",
@@ -128,6 +133,8 @@ export class PythonTranscriber implements Transcriber {
     } catch (e) {
       if (options.signal?.aborted) return { success: false, error: "Cancelled" };
       return { success: false, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      if (lyricsPath) await rm(lyricsPath, { force: true }).catch(() => {});
     }
   }
 }

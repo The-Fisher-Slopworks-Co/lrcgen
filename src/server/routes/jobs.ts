@@ -3,7 +3,9 @@ import type { ServerContext } from "../context";
 import { badRequest, clientPath, notFound, optionalQuery, readJson, type RouteTable } from "../http";
 import { requireAudioFile } from "../audio-files";
 
-const KINDS: JobKind[] = ["transcribe", "separate"];
+const KINDS: JobKind[] = ["transcribe", "align", "separate"];
+/** Far more than any song's lyrics. */
+const MAX_LYRICS_LENGTH = 200_000;
 
 function jobEvents(ctx: ServerContext, id: string, signal: AbortSignal): Response {
   const initial = ctx.jobs.get(id);
@@ -68,8 +70,14 @@ export function jobRoutes(ctx: ServerContext): RouteTable {
         const body = await readJson(req);
         if (!KINDS.includes(body.kind as JobKind)) throw badRequest(`"kind" must be one of ${KINDS.join(", ")}`);
         const audioPath = clientPath(body.audioPath, "audioPath");
+        let lyrics: string | undefined;
+        if (body.kind === "align") {
+          if (typeof body.lyrics !== "string" || !body.lyrics.trim()) throw badRequest('"lyrics" must be a non-empty string');
+          if (body.lyrics.length > MAX_LYRICS_LENGTH) throw badRequest('"lyrics" is too long');
+          lyrics = body.lyrics;
+        }
         await requireAudioFile(audioPath);
-        return Response.json(ctx.jobs.start(body.kind as JobKind, audioPath));
+        return Response.json(ctx.jobs.start(body.kind as JobKind, audioPath, lyrics));
       },
     },
     "/api/jobs/:id": {

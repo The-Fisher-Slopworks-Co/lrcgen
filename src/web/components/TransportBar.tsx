@@ -94,7 +94,8 @@ function VocalsButton() {
   const hasVocals = usePlayerState((s) => s.hasVocals);
   const separatingJob = useRunningJob("separate");
   const transcribingJob = useRunningJob("transcribe");
-  const separating = separatingJob ?? transcribingJob;
+  const syncingJob = useRunningJob("align");
+  const separating = separatingJob ?? transcribingJob ?? syncingJob;
   const uv = useStore((s) => s.app?.capabilities.uv ?? false);
   const trackInfo = useTrack();
 

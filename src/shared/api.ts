@@ -218,14 +218,17 @@ export interface WebSettings {
 // GET /api/settings  →  WebSettings (transcription resolved against env like the old TUI did)
 // PUT /api/settings  body: WebSettings  →  WebSettings
 
-// ---------------------------------------------------------------- background jobs (transcription, vocal separation)
+// ---------------------------------------------------------------- background jobs (transcription, lyrics sync, vocal separation)
 
-export type JobKind = "transcribe" | "separate";
+/** "align" syncs the user's own lyrics to the vocals: transcription without the recognition step. */
+export type JobKind = "transcribe" | "align" | "separate";
 
 /** POST /api/jobs  →  JobState. Starting a job for a track that already has one of that kind running returns the running one. */
 export interface StartJobRequest {
   kind: JobKind;
   audioPath: string;
+  /** The lyrics to sync, one line per line; required for "align" and only used there. */
+  lyrics?: string;
 }
 
 export type JobStatus = "running" | "done" | "error" | "cancelled";
@@ -245,6 +248,8 @@ export interface JobState {
   error: string | null;
   startedAt: number;
   finishedAt: number | null;
+  /** A finished "align" job's lines, with the timings found; null otherwise. */
+  lines: LrcLine[] | null;
 }
 
 // GET    /api/jobs[?audioPath=]  →  JobState[] (running and recently finished)

@@ -142,15 +142,15 @@ function JobChips() {
 export function jobLabel(job: JobState): string {
   if (job.kind === "separate") return "Separating vocals";
   if (job.firstRun && job.stage === "init") return "Downloading models";
-  return "Transcribing";
+  return job.kind === "align" ? "Syncing lyrics" : "Transcribing";
 }
 
 function JobChip({ job }: { job: JobState }) {
   const text = job.progress === null ? jobLabel(job) : `${jobLabel(job)} · ${percent(job.progress)}`;
   const open =
-    job.kind === "transcribe"
+    job.kind !== "separate"
       ? () => {
-          goToStep("lyrics", { transcribe: "1" });
+          goToStep("lyrics", job.kind === "align" ? { sync: "1" } : { transcribe: "1" });
           focusStepBody();
         }
       : undefined;

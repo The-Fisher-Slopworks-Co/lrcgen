@@ -1,9 +1,9 @@
-// Background jobs (transcription, vocal separation): start/cancel, follow their event streams into the store,
-// and act when they finish — a new stem reloads the vocals; a transcription is applied directly to an empty
-// document, otherwise the compare dialog asks what to keep.
+// Background jobs (transcription, lyrics sync, vocal separation): start/cancel, follow their event streams into
+// the store, and act when they finish — a new stem reloads the vocals; a transcription is applied directly to an
+// empty document, otherwise the compare dialog asks what to keep; a lyrics sync puts its timings on the lines.
 
-import { adoptWordTimings } from "../../core/lyrics-merge";
-import type { LrcDocument } from "../../core/lrc-document";
+import { adoptWordTimings, applyAlignment } from "../../core/lyrics-merge";
+import type { LrcDocument, LrcLine } from "../../core/lrc-document";
 import type { JobKind, JobState, Transcript } from "../../shared/api";
 import * as api from "../api/client";
 import { player } from "../audio/player";
@@ -13,7 +13,7 @@ import { appStore } from "./app-state";
 
 const subscriptions = new Map<string, () => void>();
 
-const JOB_NAMES: Record<JobKind, string> = { transcribe: "Transcription", separate: "Vocal separation" };
+const JOB_NAMES: Record<JobKind, string> = { transcribe: "Transcription", align: "Lyrics sync", separate: "Vocal separation" };
 
 function putJob(job: JobState): void {
   appStore.set((s) => ({ jobs: { ...s.jobs, [job.id]: job } }));
@@ -56,7 +56,9 @@ export async function startJob(kind: JobKind): Promise<JobState | null> {
   const song = currentSong();
   if (!song) return null;
   try {
-    const job = await api.startJob({ kind, audioPath: song.draft.audioPath });
+    const doc = currentDoc();
+    const lyrics = kind === "align" && doc ? lyricsToSync(doc) : undefined;
+    const job = await api.startJob({ kind, audioPath: song.draft.audioPath, lyrics });
     trackJob(job);
     return job;
   } catch (err) {
@@ -71,6 +73,11 @@ export async function cancelJob(id: string): Promise<void> {
   } catch (err) {
     toastError("Couldn't cancel", err);
   }
+}
+
+/** What a lyrics sync aligns: the document's lines as text. */
+function lyricsToSync(doc: LrcDocument): string {
+  return doc.lines.map((line) => line.text).join("\n");
 }
 
 /** The open song's running job of a kind, if any. */
@@ -96,6 +103,10 @@ async function onJobDone(job: JobState): Promise<void> {
   await refreshTrack();
   if (job.kind === "separate") {
     toast("Vocals separated — press V to hear them");
+    return;
+  }
+  if (job.kind === "align") {
+    applySync(job.lines ?? []);
     return;
   }
   try {
@@ -149,6 +160,19 @@ export function applyTranscript(transcript: Transcript, choice: TranscriptChoice
   const { doc: next, adopted } = adoptWordTimings(doc, transcript.lines);
   commit(next, "adopt word timings");
   toast(adopted ? `Word timings taken for ${plural(adopted, "line")}` : "No lines matched the transcription");
+}
+
+/** Puts a finished lyrics sync's timings on the open song's lines. */
+export function applySync(lines: LrcLine[]): void {
+  const doc = currentDoc();
+  if (!doc) return;
+  const { doc: next, synced } = applyAlignment(doc, lines);
+  if (synced === 0) {
+    toast("The sync found no timings for these lines", { kind: "error" });
+    return;
+  }
+  commit(next, "sync lyrics");
+  toast(`Lyrics synced · ${plural(synced, "line")}`);
 }
 
 /** Called by ./session when a song opens: the last transcript and any running jobs. */
