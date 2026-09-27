@@ -1,4 +1,3 @@
-import path from "node:path";
 import type { LrcDocument } from "./lrc-document";
 import { hasWordTimings, withTimestamp } from "./lrc-document";
 
@@ -9,10 +8,17 @@ export function isEnhancedLrcPath(filePath: string): boolean {
   return filePath.endsWith(ENHANCED_SUFFIX);
 }
 
+// Same as node's path.extname for "/" paths, so this module also runs in the browser.
+function extname(filePath: string): string {
+  const base = filePath.slice(filePath.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  return dot <= 0 || base === ".." ? "" : base.slice(dot);
+}
+
 /** "song.lrc" → "song.enhanced.lrc" */
 export function enhancedLrcPath(filePath: string): string {
   if (isEnhancedLrcPath(filePath)) return filePath;
-  const ext = path.extname(filePath);
+  const ext = extname(filePath);
   return filePath.slice(0, filePath.length - ext.length) + ENHANCED_SUFFIX;
 }
 

@@ -1,0 +1,230 @@
+/* Save & publish dialog (Save board). */
+
+.save-head {
+  flex-shrink: 0;
+  padding: 22px 28px;
+  border-bottom: 1px solid var(--border-1);
+}
+.save-head .dialog-header {
+  align-items: center;
+}
+
+.save-scroll {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.save-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 28px;
+  border-bottom: 1px solid var(--border-1);
+}
+.save-section.publish {
+  flex-grow: 1;
+  border-bottom: none;
+}
+.save-section:focus-visible {
+  outline: none;
+}
+
+.save-h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.save-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.save-path {
+  flex-grow: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--page);
+  border: 1px solid var(--border-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.save-path .inner {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.save-path .name {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.save-path-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.save-path-input {
+  flex-grow: 1;
+  height: 38px;
+  font-size: 12px;
+}
+.save-hint {
+  font-size: 12px;
+  color: var(--text-5);
+}
+.save-hint.error {
+  color: var(--warn);
+}
+
+.save-formats {
+  margin: 0;
+  padding: 0;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.save-formats legend {
+  padding: 0;
+  margin-bottom: 8px;
+}
+.save-card-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.save-writes {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-5);
+  white-space: nowrap;
+}
+.save-card-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-4);
+}
+.radio-card .text:has(.save-card-label) {
+  flex-grow: 1;
+}
+
+.save-note,
+.save-error,
+.save-progress,
+.save-result {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.save-note svg,
+.save-error svg,
+.save-progress svg,
+.save-result svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.save-note .mono-name {
+  font-family: var(--font-mono);
+  color: var(--text-2);
+}
+.save-error {
+  color: var(--warn);
+}
+.save-result.ok {
+  color: var(--text-1);
+}
+.save-progress {
+  color: var(--text-2);
+}
+
+.save-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.save-publish-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.save-copy {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+.save-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 14px;
+}
+.save-checklist li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-2);
+}
+.save-checklist li .mark {
+  flex-shrink: 0;
+}
+.save-checklist li.ok .mark {
+  color: var(--text-1);
+}
+.save-checklist li.warn {
+  color: var(--warn);
+}
+.save-checklist li .text {
+  flex-grow: 1;
+}
+.save-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+.save-link:hover {
+  color: var(--accent-hover);
+}
+
+.save-publish-status {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.save-publish-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+.save-blocker {
+  flex-grow: 1;
+  font-size: 13px;
+  color: var(--text-4);
+}

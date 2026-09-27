@@ -51,7 +51,9 @@ export function parseWordTags(content: string): Pick<LrcLine, "text" | "words" |
 
 export function formatWordTags(line: LrcLine): string {
   if (!hasWordTimings(line)) return line.text.trim();
-  // A word without a time rides along with the one before it.
+  // Enhanced LRC has no way to mark one word as untimed, so a word without a time rides along with the one before it
+  // (it lights up with it and reads back as part of that joined word); untimed words before the first timed one stay
+  // untagged and read back as untimed. The draft, not the .lrc, keeps the exact split.
   const content = line.words!.map((w) => (w.start !== null ? `<${msToLrc(w.start)}>` : "") + w.text).join("");
   const end = lineEnd(line);
   return end === null ? content : `${content.trimEnd()}<${msToLrc(end)}>`;

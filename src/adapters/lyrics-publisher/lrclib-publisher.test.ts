@@ -1,5 +1,5 @@
-import { test, expect, describe } from "bun:test";
-import { buildPublishBody } from "./lrclib-publisher";
+import { test, expect, describe, spyOn } from "bun:test";
+import { buildPublishBody, LrclibPublisher } from "./lrclib-publisher";
 import { createDocument, addLines, linesFromText, setTimestamp } from "../../core/lrc-document";
 
 describe("buildPublishBody", () => {
@@ -58,5 +58,24 @@ describe("buildPublishBody", () => {
     expect(body.trackName).toBe("");
     expect(body.artistName).toBe("");
     expect(body.albumName).toBe("");
+  });
+});
+
+describe("LrclibPublisher", () => {
+  test("an unreachable server gives an actionable error and logs the raw one", async () => {
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const publisher = new LrclibPublisher(async () => {
+        throw new TypeError("Unable to connect. Is the computer able to access the url?");
+      });
+      const doc = addLines(createDocument({ artist: "A", title: "T" }), linesFromText("Hi"));
+      expect(await publisher.publish(doc, 1000)).toEqual({
+        success: false,
+        error: "Couldn't reach lrclib.net — check your internet connection or proxy.",
+      });
+      expect(String(log.mock.calls[0])).toContain("Unable to connect");
+    } finally {
+      log.mockRestore();
+    }
   });
 });

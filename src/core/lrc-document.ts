@@ -54,6 +54,12 @@ export function hasWordTimings(line: LrcLine): boolean {
   return line.words?.some((w) => w.start !== null) ?? false;
 }
 
+/** Every word that has a letter or digit in it is timed; punctuation-only words ("— ") needn't be. */
+export function wordsComplete(line: LrcLine): boolean {
+  if (!line.words || line.words.length === 0) return false;
+  return line.words.every((w) => w.start !== null || !/[\p{L}\p{N}]/u.test(w.text));
+}
+
 export function hasAnyWordTimings(doc: LrcDocument): boolean {
   return doc.lines.some(hasWordTimings);
 }
@@ -89,11 +95,22 @@ export function setTimestamp(doc: LrcDocument, index: number, timestamp: number 
   return { ...doc, lines };
 }
 
-// A typo fix keeps word timings as long as the number of words stays the same.
-function withText(line: LrcLine, text: string): LrcLine {
+/** Groups `words` into runs of `sizes` (joined words have several parts); null when they don't add up. */
+function regroup(words: LrcWord[], sizes: number[]): LrcWord[] | null {
+  if (sizes.some((n) => n === 0) || sizes.reduce((a, b) => a + b, 0) !== words.length) return null;
+  let next = 0;
+  return sizes.map((n) => {
+    const text = words.slice(next, next + n).map((w) => w.text).join("");
+    next += n;
+    return { start: null, text };
+  });
+}
+
+/** A typo fix keeps word timings (and joined words) as long as the number of whitespace-separated parts stays the same. */
+export function withText(line: LrcLine, text: string): LrcLine {
   if (!line.words || text.trim() === line.text.trim()) return { ...line, text };
-  const words = splitWords(text);
-  if (words.length !== line.words.length) return { ...withoutWords(line), text };
+  const words = regroup(splitWords(text), line.words.map((w) => w.text.match(/\S+/g)?.length ?? 0));
+  if (!words) return { ...withoutWords(line), text };
   return { ...line, text, words: words.map((w, i) => ({ ...w, start: line.words![i]!.start })) };
 }
 

@@ -1,11 +1,10 @@
 import { test, expect, describe } from "bun:test";
 import {
   createDocument, addLines, linesFromText, setTimestamp, setLineText, setWordStart,
-  splitWords, lineEnd, hasAnyWordTimings,
+  splitWords, lineEnd, hasAnyWordTimings, wordsComplete,
 } from "./lrc-document";
 import type { LrcDocument, LrcLine } from "./lrc-document";
 import { enhancedLrcPath, plainLrcPath, isEnhancedLrcPath, mergeWordTimings } from "./enhanced-lrc";
-import { WordSyncEngine } from "./word-sync-engine";
 
 const timedLine: LrcLine = {
   timestamp: 1000,
@@ -75,6 +74,8 @@ describe("enhanced file paths", () => {
     expect(enhancedLrcPath("/music/song.lrc")).toBe("/music/song.enhanced.lrc");
     expect(enhancedLrcPath("/music/song.enhanced.lrc")).toBe("/music/song.enhanced.lrc");
     expect(enhancedLrcPath("/music/v1.0/song")).toBe("/music/v1.0/song.enhanced.lrc");
+    expect(enhancedLrcPath("/music/.lrc")).toBe("/music/.lrc.enhanced.lrc");
+    expect(enhancedLrcPath("song.flac.lrc")).toBe("song.flac.enhanced.lrc");
     expect(plainLrcPath("/music/song.enhanced.lrc")).toBe("/music/song.lrc");
     expect(plainLrcPath("/music/song.lrc")).toBe("/music/song.lrc");
     expect(isEnhancedLrcPath("song.enhanced.lrc")).toBe(true);
@@ -105,45 +106,17 @@ describe("mergeWordTimings", () => {
   });
 });
 
-describe("WordSyncEngine", () => {
-  const doc = () => addLines(createDocument(), linesFromText("Hello world\nBye"));
-
-  test("marks every word, moving on to the next line", () => {
-    const engine = new WordSyncEngine(doc());
-    engine.mark(1000);
-    engine.mark(1500);
-    expect(engine.lineIndex).toBe(1);
-    expect(engine.wordIndex).toBe(0);
-    engine.mark(3000);
-    expect(engine.isComplete).toBe(true);
-    const lines = engine.document.lines;
-    expect(lines[0]!.timestamp).toBe(1000);
-    expect(lines[0]!.words!.map((w) => w.start)).toEqual([1000, 1500]);
-    expect(lines[1]!.timestamp).toBe(3000);
+describe("wordsComplete", () => {
+  test("needs every word with a letter or digit timed", () => {
+    expect(wordsComplete(timedLine)).toBe(true);
+    expect(wordsComplete({ ...timedLine, words: [{ start: 1000, text: "Never " }, { start: null, text: "gonna " }, { start: 2000, text: "give" }] })).toBe(false);
+    expect(wordsComplete({ ...timedLine, words: [{ start: null, text: "Never " }, { start: 1500, text: "gonna " }, { start: 2000, text: "give" }] })).toBe(false);
+    expect(wordsComplete({ timestamp: 1000, text: "Раз — 2", words: [{ start: 1000, text: "Раз " }, { start: null, text: "— " }, { start: 1500, text: "2" }] })).toBe(true);
+    expect(wordsComplete({ timestamp: 1000, text: "Раз — 2", words: [{ start: 1000, text: "Раз " }, { start: null, text: "— " }, { start: null, text: "2" }] })).toBe(false);
   });
 
-  test("skips lines without words", () => {
-    const withBlank = { ...createDocument(), lines: [{ timestamp: null, text: "" }, ...doc().lines] };
-    const engine = new WordSyncEngine(withBlank);
-    expect(engine.lineIndex).toBe(1);
-  });
-
-  test("undo restores the word and the line start", () => {
-    const engine = new WordSyncEngine(doc());
-    engine.mark(1000);
-    engine.skip();
-    engine.undo();
-    expect(engine.lineIndex).toBe(0);
-    expect(engine.wordIndex).toBe(1);
-    engine.undo();
-    expect(engine.wordIndex).toBe(0);
-    expect(engine.document.lines[0]).toEqual({ timestamp: null, text: "Hello world" });
-  });
-
-  test("starts at the given line", () => {
-    const engine = new WordSyncEngine(doc(), 1);
-    engine.mark(3000);
-    expect(engine.isComplete).toBe(true);
-    expect(engine.document.lines[0]!.words).toBeUndefined();
+  test("a line without words is not complete", () => {
+    expect(wordsComplete({ timestamp: 1000, text: "Hello" })).toBe(false);
+    expect(wordsComplete({ timestamp: 1000, text: "", words: [] })).toBe(false);
   });
 });

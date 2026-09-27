@@ -53,6 +53,11 @@ describe("validateLrcLines", () => {
     expect(validateLrcLines([])).toEqual([]);
   });
 
+  test("accepts joined words", () => {
+    const lines = [{ timestamp: 1000, text: "And all through", words: [{ start: 1000, text: "And all " }, { start: 1600, text: "through" }], end: 2000 }];
+    expect(validateLrcLines(lines)).toEqual(lines);
+  });
+
   test("rejects non-arrays and malformed entries", () => {
     expect(validateLrcLines(null)).toBeNull();
     expect(validateLrcLines({})).toBeNull();

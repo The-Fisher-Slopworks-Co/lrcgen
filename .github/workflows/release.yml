@@ -43,7 +43,7 @@ jobs:
       - run: bun test
         if: matrix.target == 'bun-linux-x64'
 
-      - run: bun build ./src/index.ts --compile --target=${{ matrix.target }} --outfile ${{ matrix.artifact }} --external react-devtools-core
+      - run: bun build ./src/index.ts --compile --target=${{ matrix.target }} --outfile ${{ matrix.artifact }}
 
       - uses: actions/upload-artifact@v7
         with:

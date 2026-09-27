@@ -20,12 +20,16 @@ This file is embedded in the lrcgen binary and executed via `uv run --script`.
 It talks to the parent process over a JSON-lines protocol on the real stdout,
 one object per line:
 
-    {"type": "stage", "stage": "demucs"|"api"|"align", "message": "..."}
+    {"type": "stage", "stage": "init"|"demucs"|"api"|"align", "message": "...", "progress": <0-1, optional>}
     {"type": "result", "lines": [{"timestamp": <ms|null>, "text": "...",
         "words": [{"start": <ms>, "text": "..."}], "end": <ms>}], "rawLyrics": "..."}
 
-"words" and "end" are only present on timed lines.
+"words" and "end" are only present on timed lines. With --separate-only the
+result has no lines and empty rawLyrics.
     {"type": "error", "stage": "init"|"demucs"|"api"|"align", "message": "..."}
+
+The vocal stem is written losslessly to --vocals and shifted to be
+sample-aligned with the song; an existing stem there is reused.
 
 The API key is taken from OPENAI_API_KEY or OPENROUTER_API_KEY (never argv,
 so it does not show up in `ps`). Requires ffmpeg in PATH.
@@ -45,17 +49,21 @@ import argparse
 import base64
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 DEMUCS_MODEL = "htdemucs"
 ALIGN_MODEL_PATH = "~/.cache/ctc_forced_aligner/model.onnx"
 ALIGN_SAMPLE_RATE = 16000
+STEM_SAMPLE_RATE = 44100
 SECTION_TAG_RE = re.compile(r"^\[[A-Z][A-Z ]*\]$")
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "google/gemini-3.1-flash-lite"
 DEFAULT_ALIGN_LANG = "rus"
+PROGRESS_INTERVAL_S = 0.5
 
 PROMPT = (
     "Transcribe the lyrics of this song exactly as they are sung, in the "
@@ -68,6 +76,8 @@ PROMPT = (
     "timestamps, no commentary, no translations."
 )
 
+_current = {"stage": "init", "message": "", "reported_at": 0.0}
+
 
 def emit(event: dict) -> None:
     _protocol.write(json.dumps(event, ensure_ascii=False) + "\n")
@@ -75,8 +85,47 @@ def emit(event: dict) -> None:
 
 
 def stage(name: str, message: str) -> None:
+    _current.update(stage=name, message=message, reported_at=0.0)
     print(f"[{name}] {message}", file=sys.stderr)
     emit({"type": "stage", "stage": name, "message": message})
+
+
+def report_progress(fraction: float, message: str | None = None) -> None:
+    """Progress within the current stage, at most every PROGRESS_INTERVAL_S."""
+    now = time.monotonic()
+    if fraction < 1 and now - _current["reported_at"] < PROGRESS_INTERVAL_S:
+        return
+    _current["reported_at"] = now
+    emit({
+        "type": "stage",
+        "stage": _current["stage"],
+        "message": message or _current["message"],
+        "progress": round(max(0.0, min(1.0, fraction)), 4),
+    })
+
+
+def _install_progress_hook() -> None:
+    """Turn tqdm bars (model downloads, Demucs chunks) into protocol progress.
+
+    Must run before torch is imported: torch.hub binds `from tqdm import tqdm`
+    at import time.
+    """
+    try:
+        import tqdm
+    except ImportError:
+        return
+
+    class ProgressTqdm(tqdm.tqdm):
+        def update(self, n=1):
+            shown = super().update(n)
+            if self.total:
+                message = None
+                if self.unit == "B":
+                    message = f"downloading the model ({self.total / 1e6:.0f} MB)"
+                report_progress(self.n / self.total, message)
+            return shown
+
+    tqdm.tqdm = ProgressTqdm
 
 
 def fail(stage_name: str, message: str) -> None:
@@ -84,32 +133,105 @@ def fail(stage_name: str, message: str) -> None:
     sys.exit(1)
 
 
-def separate_vocals(song: Path, out_root: Path) -> Path:
-    vocals = out_root / DEMUCS_MODEL / song.stem / "vocals.mp3"
+def decode(path: Path):
+    """(n, 2) float32 at STEM_SAMPLE_RATE, decoded the way the browser plays it."""
+    import numpy as np
+
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:a:0", "-ac", "2",
+         "-ar", str(STEM_SAMPLE_RATE), "-f", "f32le", "-"],
+        capture_output=True, check=True,
+    ).stdout
+    return np.frombuffer(raw, np.float32).reshape(-1, 2)
+
+
+def stem_lag(ref, x, max_lag: float = 0.3, win: float = 10) -> int:
+    """Samples by which stem `x` lags song `ref`, measured on three windows across the song."""
+    import numpy as np
+
+    a, b = ref.mean(1), x.mean(1)
+    L, n = int(max_lag * STEM_SAMPLE_RATE), int(win * STEM_SAMPLE_RATE)
+    if min(len(a), len(b)) < n + 2 * L:
+        return 0
+    lags = []
+    for frac in (0.2, 0.45, 0.7):
+        s = L + int(frac * (min(len(a), len(b)) - n - 2 * L))
+        m, v = a[s:s + n], b[s - L:s + n + L]
+        if float(np.dot(m, m)) < 1e-6:  # silence says nothing about the lag
+            continue
+        size = 1 << int(np.ceil(np.log2(len(v) + len(m))))
+        c = np.fft.irfft(np.fft.rfft(v, size) * np.conj(np.fft.rfft(m, size)), size)[:2 * L + 1]
+        lags.append(int(np.argmax(c)) - L)
+    if not lags:
+        return 0
+    if len(set(lags)) > 1:
+        print(f"warning: windows disagree on the stem lag: {lags}", file=sys.stderr)
+    return int(np.median(lags))
+
+
+def separate_vocals(song: Path, vocals: Path) -> Path:
+    """The vocal stem at `vocals` (FLAC), sample-aligned with `song`; reused if it exists."""
     if vocals.exists():
         stage("demucs", f"using cached vocals for {song.name}")
         return vocals
 
+    stage("init", "loading the vocal separation model ...")
+    from demucs.pretrained import get_model
+
+    get_model(DEMUCS_MODEL)  # downloads the weights on the first run
+
     stage("demucs", f"separating vocals from {song.name} ...")
+    import numpy as np
+    import soundfile as sf
     from demucs.separate import main as demucs_main
 
-    demucs_main([
-        "--two-stems", "vocals",
-        "--mp3", "--mp3-bitrate", "128",
-        "-n", DEMUCS_MODEL,
-        "-o", str(out_root),
-        str(song),
-    ])
-    if not vocals.exists():
-        raise RuntimeError(f"demucs finished but {vocals} was not created")
+    vocals.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        demucs_main([
+            "--two-stems", "vocals",
+            "--flac", "--int24",
+            "-n", DEMUCS_MODEL,
+            "-o", tmp,
+            str(song),
+        ])
+        found = sorted(Path(tmp).rglob("vocals.flac"))
+        if not found:
+            raise RuntimeError("demucs finished but wrote no vocals.flac")
+
+        stage("demucs", "lining the vocals up with the song ...")
+        ref, x = decode(song), decode(found[0])
+
+    d = stem_lag(ref, x)
+    if d:
+        print(f"stem lagged the song by {d} samples, shifting", file=sys.stderr)
+    x = x[d:] if d >= 0 else np.pad(x, ((-d, 0), (0, 0)))
+    x = np.pad(x[:len(ref)], ((0, max(0, len(ref) - len(x))), (0, 0)))
+
+    # Written under a temp name and renamed, so a killed run never leaves a half stem to be reused.
+    partial = vocals.with_name(f".{vocals.name}.{os.getpid()}.tmp")
+    try:
+        sf.write(str(partial), x, STEM_SAMPLE_RATE, subtype="PCM_24", format="FLAC")
+        os.replace(partial, vocals)
+    finally:
+        partial.unlink(missing_ok=True)
     return vocals
 
 
 def transcribe(vocals: Path, model: str, base_url: str, api_key: str) -> str:
     from openai import OpenAI
 
-    audio_b64 = base64.b64encode(vocals.read_bytes()).decode("ascii")
-    stage("api", f"sending {vocals.stat().st_size / 1e6:.1f} MB of vocals to {model} ...")
+    with tempfile.TemporaryDirectory() as tmp:
+        mp3 = Path(tmp) / "vocals.mp3"
+        stage("api", "encoding the vocals for upload ...")
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", str(vocals),
+             "-codec:a", "libmp3lame", "-b:a", "128k", str(mp3)],
+            check=True,
+        )
+        audio_b64 = base64.b64encode(mp3.read_bytes()).decode("ascii")
+        size_mb = mp3.stat().st_size / 1e6
+
+    stage("api", f"sending {size_mb:.1f} MB of vocals to {model} ...")
     client = OpenAI(base_url=base_url, api_key=api_key)
     resp = client.chat.completions.create(
         model=model,
@@ -267,6 +389,14 @@ def main() -> None:
     )
     parser.add_argument("audio", type=Path, help="audio file to transcribe")
     parser.add_argument(
+        "--vocals", type=Path, required=True,
+        help="where the separated vocal stem (FLAC) is written; reused if it exists",
+    )
+    parser.add_argument(
+        "--separate-only", action="store_true",
+        help="only separate the vocals: no transcription, the result has no lines",
+    )
+    parser.add_argument(
         "--base-url", default=os.environ.get("OPENAI_BASE_URL", DEFAULT_BASE_URL),
         help="OpenAI-compatible API base URL (default: $OPENAI_BASE_URL or OpenRouter)",
     )
@@ -275,14 +405,14 @@ def main() -> None:
         "--align-lang", default=DEFAULT_ALIGN_LANG,
         help="ISO 639-3 language of the lyrics for forced alignment (default: %(default)s)",
     )
-    parser.add_argument(
-        "--separated-dir", type=Path, default=Path("separated"),
-        help="directory for demucs output, reused as cache (default: %(default)s)",
-    )
     args = parser.parse_args()
 
+    # Let a cancelled run (SIGTERM from lrcgen) unwind, so temp files get cleaned up.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    stage("init", "starting ...")
+
     api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
+    if not api_key and not args.separate_only:
         fail("init", "no API key: set OPENAI_API_KEY or OPENROUTER_API_KEY")
     if not shutil.which("ffmpeg"):
         fail("init", "ffmpeg not found in PATH (required by demucs to decode audio)")
@@ -291,7 +421,10 @@ def main() -> None:
 
     current = "demucs"
     try:
-        vocals = separate_vocals(args.audio, args.separated_dir)
+        vocals = separate_vocals(args.audio, args.vocals)
+        if args.separate_only:
+            emit({"type": "result", "lines": [], "rawLyrics": ""})
+            return
         current = "api"
         lyrics = transcribe(vocals, args.model, args.base_url, api_key)
         current = "align"
@@ -304,4 +437,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    _install_progress_hook()
     main()

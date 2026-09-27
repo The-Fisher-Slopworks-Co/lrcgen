@@ -5,10 +5,16 @@ import type { TranscriptionSettings } from "../core/settings-defaults";
 export interface TranscribeProgressEvent {
   stage: TranscribeStage;
   message: string;
+  /** 0–1 within the stage, when the pipeline reports it. */
+  progress?: number;
 }
 
 export interface TranscribeOptions {
   audioPath: string;
+  /** Where the separated vocal stem lives (FLAC, sample-aligned with the audio). Reused when it exists. */
+  vocalsPath: string;
+  /** Stop after separating the vocals: no transcription, the result has no lines. */
+  separateOnly?: boolean;
   settings: TranscriptionSettings;
   onProgress?: (event: TranscribeProgressEvent) => void;
   signal?: AbortSignal;

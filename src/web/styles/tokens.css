@@ -1,0 +1,55 @@
+/* The design palette and fonts. Screens use these variables, never raw hex. */
+:root {
+  --page: #15130f;
+  --panel: #1a1813;
+  --sidebar: #18160f;
+  --raised-1: #1e1b16;
+  --raised-2: #221f19;
+  --raised-3: #25221c;
+  --selected: #2a261f;
+  --dialog: #1c1a15;
+  --well: #121110;
+
+  --border-1: #2e2a23;
+  --border-2: #332f28;
+  --border-3: #3a352d;
+  --border-4: #4a443a;
+  --border-strong: #5a5040;
+
+  --text-1: #efe8da;
+  --text-2: #d9d1c1;
+  --text-3: #b8af9d;
+  --text-4: #a39a88;
+  --text-5: #9a917f;
+  --muted-1: #6f685c;
+  --muted-2: #5c554a;
+
+  --accent: #f0b44c;
+  --accent-hover: #f7cd7f;
+  --accent-pressed: #d99d33;
+  --accent-border: #b9842a;
+  --on-accent: #1a1408;
+  --accent-tint: #3a2f1a;
+  --accent-row: #221c10;
+  --accent-banner: #2a2314;
+  --accent-banner-border: #4a3e28;
+
+  --warn: #f07c95;
+  --warn-bg: #2a1c20;
+  --warn-soft: #f0a3b3;
+
+  --vocals: #86bde0;
+  --vocals-dim: #34424a;
+  --vocals-bg: #1f2a31;
+
+  --wave-played: #6d6556;
+  --wave-unplayed: #3d382f;
+
+  --font-display: Unbounded, "Golos Text", sans-serif;
+  --font-ui: "Golos Text", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --header-h: 56px;
+  --footer-h: 72px;
+  --footer-h-slim: 40px;
+}

@@ -91,6 +91,48 @@ describe("EnhancedLrcParser", () => {
     expect(enhanced.serialize(doc)).toContain("[00:15.00] Plain line");
   });
 
+  test("round-trips joined words: one tag, several parts", () => {
+    const line = "[00:01.00]<00:01.00>And all <00:01.60>through <00:02.00>the night<00:03.00>";
+    const doc = enhanced.parse(line);
+    expect(doc.lines[0]!.words).toEqual([
+      { start: 1000, text: "And all " },
+      { start: 1600, text: "through " },
+      { start: 2000, text: "the night" },
+    ]);
+    expect(enhanced.serialize(doc)).toContain(line);
+  });
+
+  test("an untimed word after a split rides along with the word before and reads back joined", () => {
+    const split = {
+      timestamp: 1000,
+      text: "And all through",
+      words: [{ start: 1000, text: "And " }, { start: null, text: "all " }, { start: 1600, text: "through" }],
+      end: 2000,
+    };
+    const output = enhanced.serialize({ ...enhanced.parse(""), lines: [split] });
+    expect(output).toContain("[00:01.00]<00:01.00>And all <00:01.60>through<00:02.00>");
+    expect(enhanced.parse(output).lines[0]).toEqual({
+      timestamp: 1000,
+      text: "And all through",
+      words: [{ start: 1000, text: "And all " }, { start: 1600, text: "through" }],
+      end: 2000,
+    });
+  });
+
+  test("untimed words before the first timed one stay untimed", () => {
+    const line = { timestamp: 1000, text: "Oh yeah", words: [{ start: null, text: "Oh " }, { start: 2000, text: "yeah" }] };
+    const output = enhanced.serialize({ ...enhanced.parse(""), lines: [line] });
+    expect(output).toContain("[00:01.00]Oh <00:02.00>yeah");
+    expect(enhanced.parse(output).lines[0]).toEqual(line);
+  });
+
+  test("a line whose words are all untimed is written plain", () => {
+    const line = { timestamp: 1000, text: "Oh yeah", words: [{ start: null, text: "Oh " }, { start: null, text: "yeah" }] };
+    const output = enhanced.serialize({ ...enhanced.parse(""), lines: [line] });
+    expect(output).toContain("[00:01.00] Oh yeah");
+    expect(enhanced.parse(output).lines[0]).toEqual({ timestamp: 1000, text: "Oh yeah" });
+  });
+
   test("the plain parser reads the tags but writes plain LRC", () => {
     const doc = simple.parse(input);
     expect(doc.lines[0]!.text).toBe("Never gonna give");

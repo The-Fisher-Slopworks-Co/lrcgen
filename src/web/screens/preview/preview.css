@@ -1,0 +1,262 @@
+/* 6 · Preview (Preview board). */
+
+.preview-screen {
+  flex-grow: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+
+.preview-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px 40px;
+  overflow: hidden;
+}
+
+.preview-stage {
+  --k: 1;
+  /* The video frame's own colours (not in the app palette). */
+  --stage-centre: #1d1a14;
+  --stage-edge: #0b0a08;
+  --stage-label: #7d7566;
+  position: relative;
+  flex-shrink: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 50%, var(--stage-centre) 0%, var(--stage-edge) 100%);
+  border: 1px solid var(--border-1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 calc(48px * var(--k));
+  text-align: center;
+}
+.preview-stage-label {
+  position: absolute;
+  left: 20px;
+  top: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--stage-label);
+}
+
+.preview-line {
+  margin: 0;
+  max-width: 100%;
+  font-family: var(--font-display);
+  font-size: calc(26px * var(--k));
+  font-weight: 500;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.preview-line.prev {
+  color: var(--muted-2);
+}
+.preview-line.next {
+  color: var(--text-5);
+}
+.preview-line.current {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  column-gap: calc(20px * var(--k));
+  font-size: calc(50px * var(--k));
+  font-weight: 600;
+  line-height: 1.15;
+}
+.preview-word {
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  background-image: linear-gradient(90deg, var(--text-1), var(--text-1));
+}
+.preview-line.backing {
+  font-style: italic;
+  color: var(--vocals);
+}
+/* Italic glyphs lean past the box; give the clipped fill room. */
+.preview-line.backing .preview-word {
+  padding-right: 0.1em;
+  margin-right: -0.1em;
+}
+.preview-line.backing.prev,
+.preview-line.backing.next {
+  color: var(--vocals-dim);
+}
+.preview-line.current.backing {
+  font-size: calc(38px * var(--k));
+}
+.preview-line.prev.backing,
+.preview-line.next.backing {
+  font-size: calc(21px * var(--k));
+}
+
+.preview-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(10px * var(--k));
+}
+.preview-title .title {
+  font-family: var(--font-display);
+  font-size: calc(36px * var(--k));
+  font-weight: 600;
+  color: var(--muted-2);
+}
+.preview-title .artist {
+  font-size: calc(20px * var(--k));
+  color: var(--muted-2);
+}
+
+.preview-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.preview-track {
+  position: relative;
+  height: 28px;
+  cursor: pointer;
+  touch-action: none;
+}
+.preview-track .rail,
+.preview-track .progress {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  height: 4px;
+  border-radius: 2px;
+}
+.preview-track .rail {
+  width: 100%;
+  background: var(--border-1);
+}
+.preview-track .progress {
+  width: 0;
+  background: var(--accent);
+}
+.preview-track .tick {
+  position: absolute;
+  top: 8px;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--muted-1);
+}
+.preview-track .tick.passed {
+  background: var(--on-accent);
+}
+.preview-flag {
+  position: absolute;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: var(--warn);
+  transform: rotate(45deg);
+  z-index: 1;
+}
+.preview-flag:hover {
+  background: var(--warn-soft);
+}
+.preview-track .playhead {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--text-1);
+  border: 2px solid var(--page);
+  pointer-events: none;
+  z-index: 2;
+}
+.preview-hints {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-4);
+}
+.preview-hints .keys {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.preview-side {
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--border-1);
+  background: var(--panel);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.preview-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.preview-readiness {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-1);
+}
+.preview-readiness .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+.preview-readiness .label {
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.preview-readiness .label.warn {
+  color: var(--warn);
+}
+.preview-readiness .value {
+  font-family: var(--font-mono);
+}
+.preview-readiness .value.muted {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text-5);
+}
+.preview-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+}
+.preview-link:hover {
+  color: var(--accent-hover);
+}
+.preview-spacer {
+  flex-grow: 1;
+}
+.preview-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

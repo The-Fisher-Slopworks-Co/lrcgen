@@ -5,7 +5,8 @@ const STAGES = ["init", "demucs", "api", "align"] as const;
 export type TranscribeStage = (typeof STAGES)[number];
 
 export type ProtocolLine =
-  | { type: "stage"; stage: TranscribeStage; message: string }
+  /** `progress` (0–1 within the stage) is sent when the pipeline can measure it. */
+  | { type: "stage"; stage: TranscribeStage; message: string; progress?: number }
   | { type: "result"; lines: LrcLine[]; rawLyrics: string }
   | { type: "error"; stage: TranscribeStage; message: string };
 
@@ -58,7 +59,11 @@ export function parseProtocolLine(raw: string): ProtocolLine | null {
   if (obj.type === "stage" || obj.type === "error") {
     if (typeof obj.stage !== "string" || !(STAGES as readonly string[]).includes(obj.stage)) return null;
     if (typeof obj.message !== "string") return null;
-    return { type: obj.type, stage: obj.stage as TranscribeStage, message: obj.message };
+    const line: ProtocolLine = { type: obj.type, stage: obj.stage as TranscribeStage, message: obj.message };
+    if (line.type === "stage" && typeof obj.progress === "number" && Number.isFinite(obj.progress)) {
+      line.progress = Math.min(1, Math.max(0, obj.progress));
+    }
+    return line;
   }
 
   if (obj.type === "result") {

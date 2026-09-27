@@ -2,7 +2,7 @@ import type { LyricsPublisher, PublishResult } from "../../ports/lyrics-publishe
 import type { LrcDocument } from "../../core/lrc-document";
 import { msToLrc } from "../../core/time-utils";
 import { solveChallenge } from "./lrclib-pow";
-import { LRCLIB_BASE_URL, LRCLIB_USER_AGENT } from "../lrclib-common";
+import { LRCLIB_BASE_URL, LRCLIB_USER_AGENT, LrclibUnreachableError, defaultFetch, lrclibFetch, type FetchLike } from "../lrclib-common";
 
 interface PublishBody {
   trackName: string;
@@ -33,10 +33,12 @@ export function buildPublishBody(doc: LrcDocument, audioLengthMs: number): Publi
 export class LrclibPublisher implements LyricsPublisher {
   name = "LRCLIB";
 
+  constructor(private fetchFn: FetchLike = defaultFetch) {}
+
   async publish(doc: LrcDocument, audioLengthMs: number): Promise<PublishResult> {
     try {
       // Step 1: Request challenge
-      const challengeRes = await fetch(`${LRCLIB_BASE_URL}/request-challenge`, {
+      const challengeRes = await lrclibFetch(this.fetchFn, `${LRCLIB_BASE_URL}/request-challenge`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "User-Agent": LRCLIB_USER_AGENT },
       });
@@ -51,7 +53,7 @@ export class LrclibPublisher implements LyricsPublisher {
 
       // Step 3: Publish
       const body = buildPublishBody(doc, audioLengthMs);
-      const publishRes = await fetch(`${LRCLIB_BASE_URL}/publish`, {
+      const publishRes = await lrclibFetch(this.fetchFn, `${LRCLIB_BASE_URL}/publish`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -68,6 +70,7 @@ export class LrclibPublisher implements LyricsPublisher {
       const errorText = await publishRes.text();
       return { success: false, error: `Publish failed (${publishRes.status}): ${errorText}` };
     } catch (e) {
+      if (e instanceof LrclibUnreachableError) return { success: false, error: e.message };
       return { success: false, error: String(e) };
     }
   }
