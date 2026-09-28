@@ -59,8 +59,8 @@ export function draftFields(body: Record<string, unknown>): DraftFields {
 
 export function webSettings(body: Record<string, unknown>): WebSettings {
   const t = body.transcription;
-  if (!isObject(t) || !["apiKey", "baseUrl", "model", "alignLang"].every((k) => typeof t[k] === "string")) {
-    throw badRequest(`"transcription" must have apiKey, baseUrl, model and alignLang`);
+  if (!isObject(t) || !["apiKey", "baseUrl", "model"].every((k) => typeof t[k] === "string")) {
+    throw badRequest(`"transcription" must have apiKey, baseUrl and model`);
   }
   const latency = body.latency;
   if (!isObject(latency) || !Object.values(latency).every((v) => typeof v === "number" && Number.isFinite(v))) {
@@ -72,7 +72,6 @@ export function webSettings(body: Record<string, unknown>): WebSettings {
       apiKey: t.apiKey as string,
       baseUrl: t.baseUrl as string,
       model: t.model as string,
-      alignLang: t.alignLang as string,
     },
     latency: latency as Record<string, number>,
     folders: [...new Set(body.folders.map((f) => clientPath(f, "folders[]")))],

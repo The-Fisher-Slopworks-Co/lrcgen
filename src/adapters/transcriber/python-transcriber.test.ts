@@ -31,7 +31,7 @@ beforeAll(async () => {
 
 afterAll(() => rm(dir, { recursive: true, force: true }));
 
-const settings = { apiKey: "secret", baseUrl: "https://api.example", model: "m", alignLang: "eng" };
+const settings = { apiKey: "secret", baseUrl: "https://api.example", model: "m" };
 
 function transcriber() {
   return new PythonTranscriber({ cacheDir: path.join(dir, "cache"), command: () => ["bun", fakePath] });
@@ -51,7 +51,7 @@ describe("PythonTranscriber", () => {
     expect(result.success).toBe(true);
     expect(JSON.parse(result.lines![0]!.text)).toEqual([
       "/music/song.flac", "--vocals", vocalsPath,
-      "--base-url", "https://api.example", "--model", "m", "--align-lang", "eng",
+      "--base-url", "https://api.example", "--model", "m",
     ]);
     // The key travels in the environment.
     expect(result.rawLyrics).toBe("secret");
@@ -83,7 +83,7 @@ describe("PythonTranscriber", () => {
     expect(result.success).toBe(true);
     const args = JSON.parse(result.lines![0]!.text) as string[];
     const lyricsFile = args[args.indexOf("--lyrics-file") + 1]!;
-    expect(args).toEqual(["/music/song.flac", "--vocals", path.join(dir, "v.flac"), "--lyrics-file", lyricsFile, "--align-lang", "eng"]);
+    expect(args).toEqual(["/music/song.flac", "--vocals", path.join(dir, "v.flac"), "--lyrics-file", lyricsFile]);
     expect(result.rawLyrics).toBe("Первая строка\nSecond line");
     expect(await Bun.file(lyricsFile).exists()).toBe(false);
   });

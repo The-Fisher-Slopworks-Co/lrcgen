@@ -4,7 +4,7 @@ import transcribeScript from "./transcribe.py" with { type: "text" };
 import type { Transcriber, TranscribeOptions, TranscribeResult } from "../../ports/transcriber";
 import { parseProtocolLine } from "../../core/transcribe-protocol";
 import { lrcgenCacheDir } from "../../core/xdg";
-import { commandExists } from "../process-utils";
+import { ensureUv, uvTarget } from "./uv";
 
 const STDERR_TAIL_LINES = 10;
 /** What uv prints while it installs the script's dependencies (first run: several GB). */
@@ -33,7 +33,7 @@ export async function* readLines(stream: ReadableStream<Uint8Array>): AsyncGener
 }
 
 export interface PythonTranscriberOptions {
-  /** Where transcribe.py is written before each run. */
+  /** Where transcribe.py is written before each run, and where a downloaded uv goes (under bin/). */
   cacheDir?: string;
   /** The command that runs the script; tests swap uv for a fake. */
   command?: (scriptPath: string) => string[];
@@ -41,27 +41,37 @@ export interface PythonTranscriberOptions {
 
 export class PythonTranscriber implements Transcriber {
   name = "Transcribe from audio (AI)";
-  private available: boolean | null = null;
   private cacheDir: string;
-  private command: (scriptPath: string) => string[];
+  private command: ((scriptPath: string) => string[]) | null;
 
   constructor(options: PythonTranscriberOptions = {}) {
     this.cacheDir = options.cacheDir ?? lrcgenCacheDir();
-    this.command = options.command ?? ((scriptPath) => ["uv", "run", "--script", scriptPath]);
+    this.command = options.command ?? null;
   }
 
+  /** uv is in PATH, or there is a build of it to download. */
   async isAvailable(): Promise<boolean> {
-    if (this.available === null) this.available = await commandExists(this.command("")[0]!);
-    return this.available;
+    return this.command !== null || uvTarget() !== null || Bun.which("uv") !== null;
+  }
+
+  /** `uv run --script`, with uv downloaded first if there is none yet. */
+  private async runCommand(scriptPath: string, options: TranscribeOptions): Promise<string[]> {
+    if (this.command) return this.command(scriptPath);
+    let reportedAt = 0;
+    const uv = await ensureUv(path.join(this.cacheDir, "bin"), {
+      signal: options.signal,
+      onProgress: (fraction) => {
+        const now = Date.now();
+        if (fraction !== 1 && now - reportedAt < 500) return;
+        reportedAt = now;
+        const event = { stage: "init" as const, message: "Downloading uv, the Python package manager…" };
+        options.onProgress?.(fraction === null ? event : { ...event, progress: fraction });
+      },
+    });
+    return [uv, "run", "--script", scriptPath];
   }
 
   async transcribe(options: TranscribeOptions): Promise<TranscribeResult> {
-    if (!(await this.isAvailable())) {
-      return {
-        success: false,
-        error: "uv not found in PATH. Install it from https://docs.astral.sh/uv/ to use transcription.",
-      };
-    }
     const { settings, separateOnly, lyrics } = options;
     if (!separateOnly && lyrics === undefined && !settings.apiKey) {
       return { success: false, error: "No API key configured. Add one in Settings or set OPENROUTER_API_KEY." };
@@ -80,10 +90,11 @@ export class PythonTranscriber implements Transcriber {
       else if (lyrics !== undefined) {
         lyricsPath = path.join(this.cacheDir, `lyrics-${crypto.randomUUID()}.txt`);
         await Bun.write(lyricsPath, lyrics);
-        args.push("--lyrics-file", lyricsPath, "--align-lang", settings.alignLang);
-      } else args.push("--base-url", settings.baseUrl, "--model", settings.model, "--align-lang", settings.alignLang);
+        args.push("--lyrics-file", lyricsPath);
+      } else args.push("--base-url", settings.baseUrl, "--model", settings.model);
 
-      const proc = Bun.spawn([...this.command(scriptPath), ...args], {
+      const command = await this.runCommand(scriptPath, options);
+      const proc = Bun.spawn([...command, ...args], {
         stdout: "pipe",
         stderr: "pipe",
         // The key goes through the environment, never argv, so it doesn't show up in `ps`.

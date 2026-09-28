@@ -5,7 +5,7 @@ import { KeyedLock } from "./keyed-lock";
 
 type Env = Record<string, string | undefined>;
 
-const TRANSCRIPTION_KEYS = ["apiKey", "baseUrl", "model", "alignLang"] as const satisfies (keyof TranscriptionSettings)[];
+const TRANSCRIPTION_KEYS = ["apiKey", "baseUrl", "model"] as const satisfies (keyof TranscriptionSettings)[];
 
 /**
  * What to store for the transcription settings the user sent back. A value is stored only when it was stored

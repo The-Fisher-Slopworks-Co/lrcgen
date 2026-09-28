@@ -18,7 +18,6 @@ import {
   offerTranscript,
   openDialog,
   startJob,
-  useApp,
   useDoc,
   useSettings,
   useSongJobs,
@@ -27,13 +26,10 @@ import {
 import { lyricLineCount } from "./lyrics-text";
 import { elapsed, segmentFill, stageIndex, stageState, STAGE_ORDER, SYNC_STAGE_ORDER, type StageState } from "./stages";
 
-type Phase = "running" | "need-uv" | "need-key" | "need-lyrics" | "done" | "error" | "ready";
+type Phase = "running" | "need-key" | "need-lyrics" | "done" | "error" | "ready";
 type Kind = "transcribe" | "align";
 
-const UV_DOCS = "https://docs.astral.sh/uv/";
-
 export function RecognizeView({ kind }: { kind: Kind }) {
-  const app = useApp();
   const settings = useSettings();
   const jobs = useSongJobs(kind);
   const job = jobs[0] ?? null;
@@ -41,7 +37,6 @@ export function RecognizeView({ kind }: { kind: Kind }) {
   const transcript = useTranscript();
   const [starting, setStarting] = useState(false);
 
-  const uv = app?.capabilities.uv ?? false;
   const hasKey = !!settings?.transcription.apiKey;
   const sync = kind === "align";
   const order = sync ? SYNC_STAGE_ORDER : STAGE_ORDER;
@@ -50,12 +45,10 @@ export function RecognizeView({ kind }: { kind: Kind }) {
       ? "running"
       : job?.status === "done"
         ? "done"
-        : !uv
-          ? "need-uv"
-          : !sync && !hasKey
-            ? "need-key"
-            : sync && lyricLineCount(doc.lines) === 0
-              ? "need-lyrics"
+        : !sync && !hasKey
+          ? "need-key"
+          : sync && lyricLineCount(doc.lines) === 0
+            ? "need-lyrics"
             : job?.status === "error"
               ? "error"
               : "ready";
@@ -104,15 +97,6 @@ export function RecognizeView({ kind }: { kind: Kind }) {
 
         {shown && <OverallProgress job={shown} order={order} />}
 
-        {phase === "need-uv" && (
-          <Need title="Transcription needs uv">
-            lrcgen runs the transcription tools with uv, the Python package manager. Install it (see{" "}
-            <a href={UV_DOCS} target="_blank" rel="noreferrer">
-              docs.astral.sh/uv
-            </a>
-            ), then restart lrcgen.
-          </Need>
-        )}
         {phase === "need-key" && (
           <Need title="Add an API key first">
             Recognizing the words uses a transcription service, and it needs an API key. Add it in{" "}
@@ -183,7 +167,7 @@ export function RecognizeView({ kind }: { kind: Kind }) {
               </Button>
             </>
           )}
-          {(phase === "need-uv" || phase === "need-lyrics") && (
+          {phase === "need-lyrics" && (
             <Button variant="secondary" className="recognize-btn" kbd="Escape" onClick={back}>
               Back
             </Button>
@@ -200,7 +184,6 @@ const HEADINGS: Record<Phase, string> = {
   done: "Transcription finished",
   error: "Transcription stopped",
   ready: "Transcribe the lyrics",
-  "need-uv": "Transcribe the lyrics",
   "need-key": "Transcribe the lyrics",
   "need-lyrics": "Transcribe the lyrics",
 };
@@ -210,7 +193,6 @@ const SYNC_HEADINGS: Record<Phase, string> = {
   done: "Lyrics synced",
   error: "Sync stopped",
   ready: "Sync your lyrics",
-  "need-uv": "Sync your lyrics",
   "need-key": "Sync your lyrics",
   "need-lyrics": "Sync your lyrics",
 };
@@ -218,7 +200,7 @@ const SYNC_HEADINGS: Record<Phase, string> = {
 function intro(kind: Kind, phase: Phase, job: JobState | null): string {
   const order = kind === "align" ? SYNC_STAGE_ORDER : STAGE_ORDER;
   if (phase === "running" && job?.firstRun && job.stage === "init") {
-    return "First we need to download the model that separates vocals from music. It's a one-time download — after that, separation runs on this computer with no internet.";
+    return "First we need to download the tools and the model that separate vocals from music. It's a one-time download — after that, separation runs on this computer with no internet.";
   }
   if (phase === "error") return `It stopped at stage ${stageIndex(job?.stage ?? "init", order) + 1} of ${order.length}. Nothing in your draft changed.`;
   if (kind === "align") {

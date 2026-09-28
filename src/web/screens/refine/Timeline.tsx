@@ -14,7 +14,7 @@ import { Icon } from "../../components/icons";
 import { cssVar } from "../../lib/css";
 import { percent, seconds } from "../../lib/format";
 import { lineSpan } from "../../lib/timing";
-import { commit, currentDoc, goToStep, select, startJob, useApp, useRunningJob } from "../../state";
+import { commit, currentDoc, goToStep, select, startJob, useRunningJob } from "../../state";
 import { laneLayout, type LaneLayout, type LaneToggles } from "./lanes";
 import { moveTarget } from "./nudge";
 import { SpectrogramCache, TILE_COLS } from "./spectrogram-cache";
@@ -509,7 +509,6 @@ function SeparateOffer({ band }: { band: { y: number; h: number } }) {
   const transcribeJob = useRunningJob("transcribe");
   const alignJob = useRunningJob("align");
   const separating = separateJob ?? transcribeJob ?? alignJob;
-  const uv = useApp()?.capabilities.uv ?? false;
   return (
     <div className="refine-offer" style={{ top: band.y, height: band.h }} onPointerDown={(e) => e.stopPropagation()}>
       {separating ? (
@@ -523,15 +522,13 @@ function SeparateOffer({ band }: { band: { y: number; h: number } }) {
           {separating.progress !== null ? ` · ${percent(separating.progress)}` : "…"}
           <span className="message">{separating.message}</span>
         </span>
-      ) : uv ? (
+      ) : (
         <>
           <span>No separated vocals yet. With them, this lane shows where the voice is, and the spectrogram gets clearer.</span>
           <Button variant="secondary" size="sm" icon={<Icon.Mic size={16} />} onClick={() => void startJob("separate")}>
             Separate vocals
           </Button>
         </>
-      ) : (
-        <span>Separating vocals needs uv (docs.astral.sh/uv) installed. The timeline works on the full mix meanwhile.</span>
       )}
     </div>
   );

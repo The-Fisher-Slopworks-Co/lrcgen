@@ -33,7 +33,6 @@ describe("app info and folders", () => {
     expect(info.homeDir).toBe(t.home);
     expect(info.folders).toEqual([{ path: t.music, name: "Music", custom: false }]);
     expect(info.launch).toBeNull();
-    expect(typeof info.capabilities.uv).toBe("boolean");
     expect(typeof info.version).toBe("string");
   });
 

@@ -13,7 +13,6 @@ export interface ServerContext {
   homeDir: string;
   cacheDir: string;
   launch: AppInfo["launch"];
-  capabilities: AppInfo["capabilities"];
   builtinFolders: string[];
   media: MediaInfo;
   settings: SettingsService;

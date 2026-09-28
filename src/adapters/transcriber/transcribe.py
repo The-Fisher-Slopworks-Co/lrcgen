@@ -1,20 +1,20 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.10,<3.13"
+# requires-python = ">=3.11,<3.15"
 # dependencies = [
+#     "av>=14",
 #     "demucs==4.0.1",
-#     "torch>=2.4,<2.6",
-#     "torchaudio>=2.4,<2.6",
-#     "numpy<2",
+#     "torch>=2.10",
+#     "torchaudio>=2.10",
+#     "numpy",
 #     "soundfile>=0.12",
 #     "openai>=1.40",
-#     "ctc-forced-aligner>=1.0.2,<2",
 #     "unidecode",
 # ]
 # ///
 """Transcription pipeline for lrcgen: separate vocals with Demucs, transcribe
 them with a Gemini model through an OpenAI-compatible API (e.g. OpenRouter),
-then force-align the lyrics to the vocals with ctc-forced-aligner.
+then force-align the lyrics to the vocals with the MMS aligner from torchaudio.
 
 This file is embedded in the lrcgen binary and executed via `uv run --script`.
 It talks to the parent process over a JSON-lines protocol on the real stdout,
@@ -34,7 +34,8 @@ The vocal stem is written losslessly to --vocals and shifted to be
 sample-aligned with the song; an existing stem there is reused.
 
 The API key is taken from OPENAI_API_KEY or OPENROUTER_API_KEY (never argv,
-so it does not show up in `ps`). Requires ffmpeg in PATH.
+so it does not show up in `ps`). Audio is decoded and encoded with PyAV, which
+bundles its own FFmpeg libraries, so no ffmpeg needs to be installed.
 """
 
 import json
@@ -49,22 +50,23 @@ sys.stdout = sys.stderr
 
 import argparse
 import base64
+import io
 import re
-import shutil
 import signal
-import subprocess
-import tempfile
 import time
+import unicodedata
 from pathlib import Path
 
 DEMUCS_MODEL = "htdemucs"
-ALIGN_MODEL_PATH = "~/.cache/ctc_forced_aligner/model.onnx"
 ALIGN_SAMPLE_RATE = 16000
+ALIGN_FRAME_S = 0.02  # wav2vec2 emits a frame per 320 samples
+ALIGN_WINDOW_S = 30
+ALIGN_CONTEXT_S = 2
+ALIGN_BATCH = 4
 STEM_SAMPLE_RATE = 44100
 SECTION_TAG_RE = re.compile(r"^\[[A-Z][A-Z ]*\]$")
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "google/gemini-3.1-flash-lite"
-DEFAULT_ALIGN_LANG = "rus"
 PROGRESS_INTERVAL_S = 0.5
 
 PROMPT = (
@@ -135,44 +137,46 @@ def fail(stage_name: str, message: str) -> None:
     sys.exit(1)
 
 
-def decode(path: Path):
-    """(n, 2) float32 at STEM_SAMPLE_RATE, decoded the way the browser plays it."""
+def decode(path: Path, rate: int, channels: int):
+    """(n, channels) float32 at `rate`: the first audio stream, decoded the way the browser plays it."""
+    import av
     import numpy as np
 
-    raw = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:a:0", "-ac", "2",
-         "-ar", str(STEM_SAMPLE_RATE), "-f", "f32le", "-"],
-        capture_output=True, check=True,
-    ).stdout
-    return np.frombuffer(raw, np.float32).reshape(-1, 2)
+    resampler = av.AudioResampler(format="flt", layout="stereo" if channels == 2 else "mono", rate=rate)
+    chunks = []
+    with av.open(str(path)) as container:
+        for frame in container.decode(audio=0):
+            chunks.extend(f.to_ndarray() for f in resampler.resample(frame))
+        chunks.extend(f.to_ndarray() for f in resampler.resample(None))
+    if not chunks:
+        raise RuntimeError(f"no audio in {path.name}")
+    # Packed float frames come out as (1, n * channels), the channels interleaved.
+    return np.concatenate(chunks, axis=1).reshape(-1, channels)
 
 
-def stem_lag(ref, x, max_lag: float = 0.3, win: float = 10) -> int:
-    """Samples by which stem `x` lags song `ref`, measured on three windows across the song."""
-    import numpy as np
+def encode_mp3(samples, rate: int, bitrate: int = 128_000) -> bytes:
+    """`samples` ((n, 2) float32 at `rate`) as an MP3 file."""
+    import av
 
-    a, b = ref.mean(1), x.mean(1)
-    L, n = int(max_lag * STEM_SAMPLE_RATE), int(win * STEM_SAMPLE_RATE)
-    if min(len(a), len(b)) < n + 2 * L:
-        return 0
-    lags = []
-    for frac in (0.2, 0.45, 0.7):
-        s = L + int(frac * (min(len(a), len(b)) - n - 2 * L))
-        m, v = a[s:s + n], b[s - L:s + n + L]
-        if float(np.dot(m, m)) < 1e-6:  # silence says nothing about the lag
-            continue
-        size = 1 << int(np.ceil(np.log2(len(v) + len(m))))
-        c = np.fft.irfft(np.fft.rfft(v, size) * np.conj(np.fft.rfft(m, size)), size)[:2 * L + 1]
-        lags.append(int(np.argmax(c)) - L)
-    if not lags:
-        return 0
-    if len(set(lags)) > 1:
-        print(f"warning: windows disagree on the stem lag: {lags}", file=sys.stderr)
-    return int(np.median(lags))
+    buf = io.BytesIO()
+    with av.open(buf, "w", format="mp3") as out:
+        stream = out.add_stream("libmp3lame", rate=rate, layout="stereo")
+        stream.bit_rate = bitrate
+        frame = av.AudioFrame.from_ndarray(samples.reshape(1, -1), format="flt", layout="stereo")
+        frame.sample_rate = rate
+        for packet in stream.encode(frame):
+            out.mux(packet)
+        for packet in stream.encode(None):
+            out.mux(packet)
+    return buf.getvalue()
 
 
 def separate_vocals(song: Path, vocals: Path) -> Path:
-    """The vocal stem at `vocals` (FLAC), sample-aligned with `song`; reused if it exists."""
+    """The vocal stem at `vocals` (FLAC), sample-aligned with `song`; reused if it exists.
+
+    Demucs gets the song as decode() gives it, so the stem lines up with the
+    browser's playback sample for sample.
+    """
     if vocals.exists():
         stage("demucs", f"using cached vocals for {song.name}")
         return vocals
@@ -180,39 +184,33 @@ def separate_vocals(song: Path, vocals: Path) -> Path:
     stage("init", "loading the vocal separation model ...")
     from demucs.pretrained import get_model
 
-    get_model(DEMUCS_MODEL)  # downloads the weights on the first run
+    model = get_model(DEMUCS_MODEL)  # downloads the weights on the first run
+    model.eval()
 
     stage("demucs", f"separating vocals from {song.name} ...")
     import numpy as np
     import soundfile as sf
-    from demucs.separate import main as demucs_main
+    import torch
+    from demucs.apply import apply_model
+
+    mix = torch.from_numpy(decode(song, model.samplerate, model.audio_channels).T.copy())
+    # What `demucs.separate` does: normalize, separate, undo the normalization.
+    ref = mix.mean(0)
+    mean, std = ref.mean(), ref.std()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # No random shifts: a single one (demucs' default) gains nothing over none on average,
+    # it only makes the stem, and so the sync, differ from run to run.
+    with torch.no_grad():
+        sources = apply_model(model, ((mix - mean) / std)[None], device=device, shifts=0, split=True,
+                              overlap=0.25, progress=True)[0]
+    x = (sources[model.sources.index("vocals")] * std + mean).T.numpy()
+    x = x / max(1.01 * float(np.abs(x).max()), 1.0)  # scaled down rather than clipped, like demucs
 
     vocals.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as tmp:
-        demucs_main([
-            "--two-stems", "vocals",
-            "--flac", "--int24",
-            "-n", DEMUCS_MODEL,
-            "-o", tmp,
-            str(song),
-        ])
-        found = sorted(Path(tmp).rglob("vocals.flac"))
-        if not found:
-            raise RuntimeError("demucs finished but wrote no vocals.flac")
-
-        stage("demucs", "lining the vocals up with the song ...")
-        ref, x = decode(song), decode(found[0])
-
-    d = stem_lag(ref, x)
-    if d:
-        print(f"stem lagged the song by {d} samples, shifting", file=sys.stderr)
-    x = x[d:] if d >= 0 else np.pad(x, ((-d, 0), (0, 0)))
-    x = np.pad(x[:len(ref)], ((0, max(0, len(ref) - len(x))), (0, 0)))
-
     # Written under a temp name and renamed, so a killed run never leaves a half stem to be reused.
     partial = vocals.with_name(f".{vocals.name}.{os.getpid()}.tmp")
     try:
-        sf.write(str(partial), x, STEM_SAMPLE_RATE, subtype="PCM_24", format="FLAC")
+        sf.write(str(partial), x, model.samplerate, subtype="PCM_24", format="FLAC")
         os.replace(partial, vocals)
     finally:
         partial.unlink(missing_ok=True)
@@ -222,16 +220,10 @@ def separate_vocals(song: Path, vocals: Path) -> Path:
 def transcribe(vocals: Path, model: str, base_url: str, api_key: str) -> str:
     from openai import OpenAI
 
-    with tempfile.TemporaryDirectory() as tmp:
-        mp3 = Path(tmp) / "vocals.mp3"
-        stage("api", "encoding the vocals for upload ...")
-        subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-i", str(vocals),
-             "-codec:a", "libmp3lame", "-b:a", "128k", str(mp3)],
-            check=True,
-        )
-        audio_b64 = base64.b64encode(mp3.read_bytes()).decode("ascii")
-        size_mb = mp3.stat().st_size / 1e6
+    stage("api", "encoding the vocals for upload ...")
+    mp3 = encode_mp3(decode(vocals, STEM_SAMPLE_RATE, 2), STEM_SAMPLE_RATE)
+    audio_b64 = base64.b64encode(mp3).decode("ascii")
+    size_mb = len(mp3) / 1e6
 
     stage("api", f"sending {size_mb:.1f} MB of vocals to {model} ...")
     client = OpenAI(base_url=base_url, api_key=api_key)
@@ -271,22 +263,50 @@ def _line_align_words(line: str) -> list[str]:
     return _align_words(line)
 
 
-def align_lines(vocals: Path, lines: list[str], language: str) -> list[list[dict]]:
+def _romanize(word: str) -> str:
+    """`word` in the MMS aligner's alphabet: lowercase Latin letters and the apostrophe.
+
+    MMS was trained on romanized text of every language, so Cyrillic and the
+    rest go through unidecode; digits and punctuation drop out.
+    """
+    from unidecode import unidecode
+
+    return re.sub(r"[^a-z']", "", unidecode(unicodedata.normalize("NFKC", word)).lower())
+
+
+def _emissions(model, audio, device):
+    """(frames, labels + 1) log-probabilities of `audio`, the last column for the <star> token.
+
+    The song goes through the model in ALIGN_WINDOW_S windows, each with
+    ALIGN_CONTEXT_S of context either side, so memory stays flat however long it is.
+    """
+    import numpy as np
+    import torch
+
+    window, context = ALIGN_WINDOW_S * ALIGN_SAMPLE_RATE, ALIGN_CONTEXT_S * ALIGN_SAMPLE_RATE
+    context_frames = round(ALIGN_CONTEXT_S / ALIGN_FRAME_S)
+    extension = -len(audio) % window
+    padded = np.pad(audio, (context, context + extension))
+    windows = np.stack([padded[i:i + window + 2 * context] for i in range(0, len(audio) + extension, window)])
+
+    chunks = []
+    with torch.inference_mode():
+        for i in range(0, len(windows), ALIGN_BATCH):
+            emission, _ = model(torch.from_numpy(windows[i:i + ALIGN_BATCH]).to(device))
+            chunks.append(emission[:, context_frames:1 - context_frames].cpu())
+            report_progress((i + ALIGN_BATCH) / len(windows))
+    emissions = torch.cat(chunks).reshape(-1, chunks[0].shape[-1])
+    emissions = emissions[:emissions.shape[0] - round(extension / ALIGN_SAMPLE_RATE / ALIGN_FRAME_S)]
+    # <star> matches anything with probability 1: it soaks up whatever isn't in the lyrics.
+    return torch.cat([emissions, torch.zeros(emissions.shape[0], 1)], dim=1)
+
+
+def align_lines(vocals: Path, lines: list[str]) -> list[list[dict]]:
     """Force-align lyric lines to the vocals.
 
     Returns, per line, one {"start": s, "end": s} per word of _line_align_words;
     untimeable lines (blank, section tags) get [].
     """
-    from ctc_forced_aligner import (
-        AlignmentSingleton,
-        generate_emissions,
-        get_alignments,
-        get_spans,
-        load_audio,
-        postprocess_results,
-        preprocess_text,
-    )
-
     words: list[str] = []
     spans: list[tuple[int, int]] = []
     for line in lines:
@@ -297,33 +317,69 @@ def align_lines(vocals: Path, lines: list[str], language: str) -> list[list[dict
         raise RuntimeError("no alignable text in the lyrics")
 
     stage("align", "loading alignment model ...")
-    aligner = AlignmentSingleton(model_path=os.path.expanduser(ALIGN_MODEL_PATH))
+    import torch
+    import torchaudio
 
-    with tempfile.TemporaryDirectory() as tmp:
-        wav_path = Path(tmp) / "vocals16k.wav"
-        subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-i", str(vocals),
-             "-ac", "1", "-ar", str(ALIGN_SAMPLE_RATE), str(wav_path)],
-            check=True,
-        )
-        audio = load_audio(str(wav_path))
+    bundle = torchaudio.pipelines.MMS_FA
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = bundle.get_model(with_star=False).to(device)  # downloads the weights on the first run
+    # The raw waveform, as ctc-forced-aligner fed it: normalizing it (per window or over the
+    # whole song) threw the lines of a test song off by seconds.
+    model.normalize_waveform = False
+    dictionary = bundle.get_dict(star=None)
+    blank = dictionary["-"]
+    star = len(dictionary)
 
     stage("align", f"aligning {len(words)} words ...")
-    emissions, stride = generate_emissions(aligner.alignment_model, audio, batch_size=4)
-    tokens_starred, text_starred = preprocess_text(
-        " ".join(words), romanize=True, language=language
-    )
-    segments, scores, blank_token = get_alignments(
-        emissions, tokens_starred, aligner.alignment_tokenizer
-    )
-    word_spans = get_spans(tokens_starred, segments, blank_token)
-    word_ts = postprocess_results(text_starred, word_spans, stride, scores)
-    if len(word_ts) != len(words):
-        raise RuntimeError(
-            f"alignment mismatch: {len(word_ts)} timestamps for {len(words)} words"
-        )
+    emissions = _emissions(model, decode(vocals, ALIGN_SAMPLE_RATE, 1)[:, 0], device)
 
-    return [word_ts[begin:end] for begin, end in spans]
+    # A <star> before every word, as ctc-forced-aligner does: it lets the aligner skip
+    # ad-libs and noise between words instead of stretching a word over them.
+    targets: list[int] = []
+    ranges: list[tuple[int, int]] = []  # each word's characters in `targets`
+    for word in words:
+        chars = [dictionary[c] for c in _romanize(word)]
+        if chars:
+            targets.append(star)
+        ranges.append((len(targets), len(targets) + len(chars)))
+        targets.extend(chars)
+    if not targets:
+        raise RuntimeError("no alignable text in the lyrics")
+    try:
+        path, _ = torchaudio.functional.forced_align(
+            emissions[None], torch.tensor([targets], dtype=torch.int32), blank=blank
+        )
+    except RuntimeError as e:
+        raise RuntimeError(f"the lyrics don't fit the song: {e}") from e
+
+    # [label, first frame, last frame] runs of the path; the non-blank ones are the targets in order.
+    segments: list[list[int]] = []
+    for frame, label in enumerate(path[0].tolist()):
+        if segments and segments[-1][0] == label:
+            segments[-1][2] = frame
+        else:
+            segments.append([label, frame, frame])
+    token_segments = [i for i, seg in enumerate(segments) if seg[0] != blank]
+
+    # A word runs from its first to its last character, widened to the middle of the
+    # silence on either side (to its end after the last word).
+    last = max(i for i, (begin, end) in enumerate(ranges) if end > begin)
+    timed: list[dict] = []
+    for i, (begin, end) in enumerate(ranges):
+        if begin == end:  # nothing to align ("5", "..."): pinned to the word before
+            at = timed[-1]["end"] if timed else 0.0
+            timed.append({"start": at, "end": at})
+            continue
+        first, final = token_segments[begin], token_segments[end - 1]
+        start, stop = segments[first][1], segments[final][2]
+        if first > 0 and segments[first - 1][0] == blank:
+            start = (segments[first - 1][1] + segments[first - 1][2]) // 2
+        if final + 1 < len(segments) and segments[final + 1][0] == blank:
+            after = segments[final + 1]
+            stop = after[2] if i == last else (after[1] + after[2]) // 2
+        timed.append({"start": start * ALIGN_FRAME_S, "end": stop * ALIGN_FRAME_S})
+
+    return [timed[begin:end] for begin, end in spans]
 
 
 def _ms(seconds: float) -> int:
@@ -360,9 +416,9 @@ def attach_word_times(line: str, aligned: list[dict]) -> tuple[list[dict], int] 
     return words, _ms(aligned[-1]["end"])
 
 
-def build_lines(vocals: Path, lyrics: str, language: str) -> list[dict]:
+def build_lines(vocals: Path, lyrics: str) -> list[dict]:
     lines = lyrics.splitlines()
-    aligned_lines = align_lines(vocals, lines, language)
+    aligned_lines = align_lines(vocals, lines)
     out = []
     for line, aligned in zip(lines, aligned_lines):
         stripped = line.strip()
@@ -407,10 +463,6 @@ def main() -> None:
         help="OpenAI-compatible API base URL (default: $OPENAI_BASE_URL or OpenRouter)",
     )
     parser.add_argument("--model", default=DEFAULT_MODEL, help="model to use (default: %(default)s)")
-    parser.add_argument(
-        "--align-lang", default=DEFAULT_ALIGN_LANG,
-        help="ISO 639-3 language of the lyrics for forced alignment (default: %(default)s)",
-    )
     args = parser.parse_args()
 
     # Let a cancelled run (SIGTERM from lrcgen) unwind, so temp files get cleaned up.
@@ -420,8 +472,6 @@ def main() -> None:
     api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
     if not api_key and not args.separate_only and not args.lyrics_file:
         fail("init", "no API key: set OPENAI_API_KEY or OPENROUTER_API_KEY")
-    if not shutil.which("ffmpeg"):
-        fail("init", "ffmpeg not found in PATH (required by demucs to decode audio)")
     if not args.audio.is_file():
         fail("init", f"file not found: {args.audio}")
     if args.lyrics_file and not args.lyrics_file.is_file():
@@ -439,7 +489,7 @@ def main() -> None:
             current = "api"
             lyrics = transcribe(vocals, args.model, args.base_url, api_key)
         current = "align"
-        lines = build_lines(vocals, lyrics, args.align_lang)
+        lines = build_lines(vocals, lyrics)
     except Exception as e:
         fail(current, str(e) or type(e).__name__)
         return

@@ -18,11 +18,6 @@ export interface AppInfo {
   homeDir: string;
   /** Folders shown in the sidebar: XDG music and downloads dirs (when they exist) plus the ones the user added. */
   folders: FolderBookmark[];
-  capabilities: {
-    /** `uv` is in PATH: transcription and vocal separation can run. */
-    uv: boolean;
-    ffmpeg: boolean;
-  };
   /** What `lrcgen <path>` was started with, resolved: an audio file opens straight into its draft, a folder opens in the browser. */
   launch: { kind: "audio"; path: string; draftId: string } | { kind: "folder"; path: string } | null;
 }
@@ -243,7 +238,7 @@ export interface JobState {
   message: string;
   /** 0–1 within the current stage when the pipeline reports it, else null. */
   progress: number | null;
-  /** True on the very first run, while uv downloads the ML dependencies and models. */
+  /** True on the very first run, while lrcgen downloads uv, the ML dependencies and models. */
   firstRun: boolean;
   error: string | null;
   startedAt: number;

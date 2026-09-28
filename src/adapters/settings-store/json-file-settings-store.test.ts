@@ -24,7 +24,7 @@ describe("JsonFileSettingsStore", () => {
   test("save then load round-trips", withTempDir(async (dir) => {
     const store = new JsonFileSettingsStore(dir);
     const settings = {
-      transcription: { apiKey: "k", baseUrl: "https://x", model: "m", alignLang: "eng" },
+      transcription: { apiKey: "k", baseUrl: "https://x", model: "m" },
     };
     await store.save(settings);
     expect(await store.load()).toEqual(settings);

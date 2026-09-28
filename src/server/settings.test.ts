@@ -7,7 +7,7 @@ import { startTestApp, type TestApp } from "./test-helpers";
 
 describe("transcriptionToStore", () => {
   const env = { OPENROUTER_API_KEY: "env-key" };
-  const resolved = { apiKey: "env-key", baseUrl: DEFAULT_BASE_URL, model: DEFAULT_MODEL, alignLang: "rus" };
+  const resolved = { apiKey: "env-key", baseUrl: DEFAULT_BASE_URL, model: DEFAULT_MODEL };
 
   test("stores nothing that would apply anyway", () => {
     expect(transcriptionToStore({}, resolved, env)).toEqual({});
@@ -37,7 +37,7 @@ describe("/api/settings", () => {
 
   test("GET resolves transcription settings against the environment", async () => {
     expect(await get()).toEqual({
-      transcription: { apiKey: "env-key", baseUrl: DEFAULT_BASE_URL, model: DEFAULT_MODEL, alignLang: "rus" },
+      transcription: { apiKey: "env-key", baseUrl: DEFAULT_BASE_URL, model: DEFAULT_MODEL },
       latency: {},
       folders: [],
     });

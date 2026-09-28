@@ -14,7 +14,6 @@ export function appRoutes(ctx: ServerContext): RouteTable {
           version: VERSION,
           homeDir: ctx.homeDir,
           folders: await folderBookmarks(ctx),
-          capabilities: ctx.capabilities,
           launch: ctx.launch,
         };
         return Response.json(info);

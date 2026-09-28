@@ -70,15 +70,6 @@ export function SettingsDialog() {
             </label>
             <Field label="Base URL" mono value={values.baseUrl} onChange={set("baseUrl")} spellCheck={false} />
             <Field label="Model" mono value={values.model} onChange={set("model")} spellCheck={false} />
-            <Field
-              label="Alignment language"
-              hint="ISO 639-3 code, e.g. rus, eng"
-              mono
-              value={values.alignLang}
-              onChange={set("alignLang")}
-              spellCheck={false}
-              style={{ width: 120 }}
-            />
             <p style={{ fontSize: 12, color: "var(--text-5)" }}>Unset values fall back to $OPENROUTER_API_KEY / $OPENAI_API_KEY and defaults.</p>
           </section>
 

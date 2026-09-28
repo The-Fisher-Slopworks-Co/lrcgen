@@ -9,7 +9,7 @@ import { Kbd } from "../../components/controls";
 import { Icon } from "../../components/icons";
 import { isTypingTarget, useHotkeys } from "../../hotkeys/hotkeys";
 import { plural } from "../../lib/format";
-import { goToStep, runningJob, startJob, toastError, useApp, useDoc, useRunningJob, useSettings, useStep, useTrack } from "../../state";
+import { goToStep, runningJob, startJob, toastError, useDoc, useRunningJob, useSettings, useStep, useTrack } from "../../state";
 import { applyLyrics } from "./apply";
 import { lyricLineCount, parseLyricsText } from "./lyrics-text";
 import { PreviewPanel, primaryUse, type PreviewContent } from "./PreviewPanel";
@@ -59,7 +59,6 @@ function isOtherControl(target: EventTarget | null): boolean {
 function LyricsSources() {
   const doc = useDoc();
   const track = useTrack();
-  const app = useApp();
   const settings = useSettings();
   const transcribing = useRunningJob("transcribe");
   const syncing = useRunningJob("align");
@@ -128,7 +127,7 @@ function LyricsSources() {
   };
 
   const transcribe = async () => {
-    if (app?.capabilities.uv && settings?.transcription.apiKey && !runningJob("transcribe")) {
+    if (settings?.transcription.apiKey && !runningJob("transcribe")) {
       setStarting(true);
       await startJob("transcribe");
     }
@@ -136,7 +135,7 @@ function LyricsSources() {
   };
 
   const syncLyrics = async () => {
-    if (app?.capabilities.uv && lyricLineCount(doc.lines) > 0 && !runningJob("align")) {
+    if (lyricLineCount(doc.lines) > 0 && !runningJob("align")) {
       setStarting(true);
       await startJob("align");
     }

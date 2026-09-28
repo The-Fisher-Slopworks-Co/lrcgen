@@ -96,7 +96,6 @@ function VocalsButton() {
   const transcribingJob = useRunningJob("transcribe");
   const syncingJob = useRunningJob("align");
   const separating = separatingJob ?? transcribingJob ?? syncingJob;
-  const uv = useStore((s) => s.app?.capabilities.uv ?? false);
   const trackInfo = useTrack();
 
   if (!hasVocals && separating) {
@@ -108,9 +107,7 @@ function VocalsButton() {
   }
   const title = hasVocals
     ? "Hear only the separated vocals (V)"
-    : uv
-      ? "No vocal track yet — press to separate the vocals from the music"
-      : "Separating vocals needs uv installed";
+    : "No vocal track yet — press to separate the vocals from the music";
   return (
     <Button
       variant="toggle"

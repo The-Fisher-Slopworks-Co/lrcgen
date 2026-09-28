@@ -3,7 +3,6 @@ import path from "node:path";
 import type { BunRequest, HTMLBundle, Server } from "bun";
 import type { AppInfo } from "../shared/api";
 import { createDefaultRegistry, type AppDirs, type Registry } from "../registry";
-import { commandExists } from "../adapters/process-utils";
 import { vocalsPath, type ServerContext } from "./context";
 import { DraftService } from "./drafts";
 import { builtinFolders } from "./folders";
@@ -66,18 +65,13 @@ export async function createServer(options: ServerOptions): Promise<AppServer> {
   const registry = { ...createDefaultRegistry(options), ...options.registry };
   const media = new MediaInfo();
   const settings = new SettingsService(registry.settingsStore, env);
-  const [uv, ffmpeg, folders] = await Promise.all([
-    commandExists("uv"),
-    commandExists("ffmpeg"),
-    builtinFolders(homeDir, env),
-  ]);
+  const folders = await builtinFolders(homeDir, env);
 
   const ctx: ServerContext = {
     registry,
     homeDir,
     cacheDir: options.cacheDir,
     launch: options.launch ?? null,
-    capabilities: { uv, ffmpeg },
     builtinFolders: folders,
     media,
     settings,

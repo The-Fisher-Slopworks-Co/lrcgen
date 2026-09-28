@@ -15,7 +15,7 @@ export interface JobManagerDeps {
   transcripts: TranscriptStore;
   transcriptionSettings: () => Promise<TranscriptionSettings>;
   vocalsPath: (draftId: string) => string;
-  /** Written once a job gets past the "init" stage: uv has installed the ML dependencies. */
+  /** Written once a job gets past the "init" stage: uv and the ML dependencies are installed. */
   depsMarkerPath: string;
   now?: () => number;
 }

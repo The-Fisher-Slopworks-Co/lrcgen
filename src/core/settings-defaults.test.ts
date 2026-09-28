@@ -1,6 +1,5 @@
 import { test, expect, describe } from "bun:test";
 import {
-  DEFAULT_ALIGN_LANG,
   DEFAULT_BASE_URL,
   DEFAULT_MODEL,
   resolveTranscriptionSettings,
@@ -13,19 +12,17 @@ describe("resolveTranscriptionSettings", () => {
       apiKey: "",
       baseUrl: DEFAULT_BASE_URL,
       model: DEFAULT_MODEL,
-      alignLang: DEFAULT_ALIGN_LANG,
     });
   });
 
   test("stored values win over env and defaults", () => {
     const settings = resolveTranscriptionSettings(
-      { apiKey: "stored-key", baseUrl: "https://example.com", model: "m", alignLang: "eng" },
+      { apiKey: "stored-key", baseUrl: "https://example.com", model: "m" },
       { OPENROUTER_API_KEY: "env-key", OPENAI_BASE_URL: "https://env.example.com" },
     );
     expect(settings.apiKey).toBe("stored-key");
     expect(settings.baseUrl).toBe("https://example.com");
     expect(settings.model).toBe("m");
-    expect(settings.alignLang).toBe("eng");
   });
 
   test("env fills in missing apiKey and baseUrl", () => {

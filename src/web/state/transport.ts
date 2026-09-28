@@ -25,10 +25,6 @@ export function toggleVocals(): void {
     toast("Still separating the vocals — V works once that's done");
     return;
   }
-  if (!appStore.get().app?.capabilities.uv) {
-    toast("Separating vocals needs uv (docs.astral.sh/uv) installed and in PATH", { kind: "error" });
-    return;
-  }
   toast("No vocal track yet", {
     action: { label: "Separate vocals", run: () => void startJob("separate") },
     durationMs: 8000,
