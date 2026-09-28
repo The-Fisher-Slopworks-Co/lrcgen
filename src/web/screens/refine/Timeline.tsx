@@ -1,71 +1,108 @@
-// The Refine timeline (Refine board): ruler, words lane with draggable word blocks, vocals waveform,
-// spectrogram and mix lanes, playhead and loop. Two canvases — the audio lanes (redrawn when the view
-// moves) and an overlay with word-start lines, flags and the playhead (redrawn every frame) — with the word
-// blocks as buttons in between. Wheel scrolls, Ctrl+wheel zooms, dragging the ruler scrolls, a click seeks.
+// The Refine timeline (Refine board): ruler, the group rows — lines, then labelled groups (backing vocals,
+// ad-libs) — with a draggable block per word, the ghost strip for the selected group's untimed words, vocals
+// waveform, spectrogram and mix lanes, playhead and loop. Two canvases — the audio lanes (redrawn when the view
+// moves) and an overlay with the selected word's start and end, flags and the playhead (redrawn every frame) —
+// with the bands and blocks as elements in between.
+//
+// A block's left edge is where the word starts, its right edge where it ends (faded when the word has no end of its
+// own and runs until the next word). Drag an edge to move it, the middle to move the word. Click picks a word
+// (Shift/Ctrl adds more), double-click plays it. Wheel scrolls, Ctrl+wheel zooms, dragging the ruler scrolls, a
+// click elsewhere seeks; while playing, the view pages along with the playhead.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { Flag } from "../../../core/flags";
-import { hasWordTimings, type LrcDocument } from "../../../core/lrc-document";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { flagTime, type Flag } from "../../../core/flags";
+import { isLabelled, setWordTimes, type Group, type LyricsDoc } from "../../../core/lyrics";
 import type { AudioData } from "../../audio/analysis";
 import { ENVELOPE_FRAME_MS, useAudioData } from "../../audio/audio-data";
 import { player, usePositionEffect } from "../../audio/player";
-import { Button } from "../../components/controls";
+import { Button, LabelChips } from "../../components/controls";
 import { Icon } from "../../components/icons";
 import { cssVar } from "../../lib/css";
+import { labelHue } from "../../lib/labels";
 import { percent, seconds } from "../../lib/format";
-import { lineSpan } from "../../lib/timing";
-import { commit, currentDoc, goToStep, select, startJob, useRunningJob } from "../../state";
-import { laneLayout, type LaneLayout, type LaneToggles } from "./lanes";
-import { moveTarget } from "./nudge";
+import { commit, currentDoc, goToStep, startJob, useRunningJob } from "../../state";
+import { flagNote, groupBlocks, timelineRows, type WordBlock } from "./blocks";
+import { laneLayout, ROW_H, type LaneLayout, type LaneToggles } from "./lanes";
+import { moveEnd, moveTarget } from "./nudge";
 import { SpectrogramCache, TILE_COLS } from "./spectrogram-cache";
 import { colorRamp, hexToRgb, quantizeMsPerCol, tilesFor } from "./spectrogram";
 import { clampView, msAt, rulerTicks, xOf, zoomAround, type View } from "./timeline-view";
 import { barLevels, loudestLevel, voicedBars } from "./waves";
-import { edgeWords, flagNote, flagTime, lineBlocks } from "./word-blocks";
 
 export interface TimelineProps {
-  doc: LrcDocument;
-  lineIndex: number;
+  /** What to draw: the document, or a retap's work in progress. */
+  doc: LyricsDoc;
+  /** The selected group and word. */
+  group: number;
   word: number | null;
+  /** Words picked besides the selected one (Shift+click), by id. */
+  picked: ReadonlySet<string>;
+  /** Groups the Groups pane filters out: drawn faded. */
+  dimmed: (group: Group) => boolean;
   view: View;
   setView: (update: (v: View) => View) => void;
   lanes: LaneToggles;
-  /** Flags in this line. */
   flags: Flag[];
   durationMs: number;
   hasStem: boolean;
+  /** No dragging or picking (a retap is running). */
+  locked?: boolean;
+  /** The word tapped last in a retap: drawn from its start to the playhead, until the next tap. */
+  live?: { group: number; start: number } | null;
+  onPickWord: (group: number, word: number, additive: boolean) => void;
+  onPickGroup: (group: number) => void;
 }
 
 const BAR = 3;
 const BAR_GAP = 1;
 const DRAG_THRESHOLD = 3;
+/** Where the blocks sit in a row, under the label tag. */
+const BLOCK_TOP = 19;
+const BLOCK_H = 30;
 
 interface Size {
   width: number;
   height: number;
 }
 
+type Edge = "start" | "end" | "move";
+
 type Gesture =
   | { kind: "ruler"; x0: number; view0: View; moved: boolean }
   | { kind: "seek" }
-  | { kind: "block"; word: number; x0: number; start: number; moved: boolean; ms: number }
-  | { kind: "ghost"; word: number; x0: number; y0: number; moved: boolean; ms: number | null };
+  | { kind: "block"; edge: Edge; group: number; word: number; x0: number; start: number; end: number | null; drawnEnd: number; moved: boolean; additive: boolean }
+  | { kind: "ghost"; group: number; word: number; x0: number; y0: number; moved: boolean; ms: number | null };
 
 const round10 = (ms: number) => Math.round(ms / 10) * 10;
 
-export function Timeline({ doc, lineIndex, word, view, setView, lanes, flags, durationMs, hasStem }: TimelineProps) {
+/** The document with a block gesture applied, `dt` ms along. */
+function dragged(doc: LyricsDoc, g: Extract<Gesture, { kind: "block" }>, dt: number, durationMs: number): LyricsDoc {
+  const target = { line: g.group, word: g.word };
+  if (g.edge === "start") {
+    const limit = (g.end ?? Number.POSITIVE_INFINITY) - 20;
+    return moveTarget(doc, target, Math.min(limit, round10(g.start + dt)), durationMs);
+  }
+  if (g.edge === "end") return moveEnd(doc, target, round10(g.drawnEnd + dt), durationMs);
+  if (g.end === null) return moveTarget(doc, target, round10(g.start + dt), durationMs);
+  const shift = Math.max(-g.start, round10(dt));
+  return setWordTimes(doc, g.group, g.word, g.start + shift, g.end + shift);
+}
+
+export function Timeline(props: TimelineProps) {
+  const { doc, group, word, picked, dimmed, view, setView, lanes, flags, durationMs, hasStem, locked, live, onPickWord, onPickGroup } = props;
   const lanesBox = useRef<HTMLDivElement>(null);
   const bgCanvas = useRef<HTMLCanvasElement>(null);
   const fgCanvas = useRef<HTMLCanvasElement>(null);
+  const blockEls = useRef(new Map<string, HTMLElement>());
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
-  const [drag, setDrag] = useState<{ word: number; ms: number } | null>(null);
+  const [drag, setDrag] = useState<{ doc: LyricsDoc; tip: { x: number; text: string } | null } | null>(null);
   const gesture = useRef<Gesture | null>(null);
   const audio = useAudioData();
   const dpr = window.devicePixelRatio || 1;
 
   // Latest values for native listeners.
-  const live = useRef({ view, size, durationMs });
-  live.current = { view, size, durationMs };
+  const live$ = useRef({ view, size, durationMs });
+  live$.current = { view, size, durationMs };
 
   useLayoutEffect(() => {
     const el = lanesBox.current;
@@ -83,7 +120,7 @@ export function Timeline({ doc, lineIndex, word, view, setView, lanes, flags, du
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const { size: s, durationMs: d } = live.current;
+      const { size: s, durationMs: d } = live$.current;
       if (s.width === 0) return;
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? s.width : 1;
       const px = e.clientX - el.getBoundingClientRect().left;
@@ -98,17 +135,20 @@ export function Timeline({ doc, lineIndex, word, view, setView, lanes, flags, du
     return () => el.removeEventListener("wheel", onWheel);
   }, [setView]);
 
-  // What's drawn: the document with the block being dragged already moved.
-  const shown = drag ? moveTarget(doc, { line: lineIndex, word: drag.word }, drag.ms, durationMs) : doc;
-  const line = shown.lines[lineIndex];
-  const span = lineSpan(shown, lineIndex, durationMs);
-  const { blocks } = lineBlocks(line, span?.to ?? null);
+  // What's drawn: the document with the block being dragged already moved. Rows come from the real document, so
+  // they hold still while dragging.
+  const shown = drag?.doc ?? doc;
+  const base = useMemo(() => timelineRows(doc, view, durationMs), [doc, view, durationMs]);
+  const rows = useMemo(() => (shown === doc ? base : timelineRows(shown, view, durationMs)), [shown, doc, base, view, durationMs]);
+  const rowOf = new Map(base.bands.map((b) => [b.group, b.row]));
+  const rowCount = base.lineRows + base.labelledRows;
   // The ghost strip reads the real document, so a ghost being dragged stays put (and keeps the pointer).
-  const { untimed } = lineBlocks(doc.lines[lineIndex], null);
-  const edges = edgeWords(shown, lineIndex);
-  const layout = laneLayout(size.height, lanes, untimed.length > 0);
+  const { untimed } = groupBlocks(doc, group, durationMs);
+  const layout = laneLayout(size.height, lanes, untimed.length > 0, rowCount);
   const x = (ms: number) => xOf(view, size.width, ms);
-  const flaggedWords = new Set(flags.filter((f) => f.wordIndex !== undefined).map((f) => f.wordIndex!));
+  const rowY = (row: number) => layout.words.y + row * ROW_H;
+  const flaggedWords = new Set(flags.filter((f) => f.wordIndex !== undefined).map((f) => `${f.lineIndex}:${f.wordIndex}`));
+  const selectedBlock = rows.blocks.find((b) => b.group === group && b.word === word) ?? null;
 
   // ---------------------------------------------------------------- audio lanes (background canvas)
 
@@ -139,6 +179,15 @@ export function Timeline({ doc, lineIndex, word, view, setView, lanes, flags, du
     g.beginPath();
     g.roundRect(0, layout.words.y, size.width, layout.words.h, 6);
     g.fill();
+    // Where the labelled rows begin.
+    const split = rowY(base.lineRows);
+    g.strokeStyle = cssVar("--border-2");
+    g.setLineDash([4, 4]);
+    g.beginPath();
+    g.moveTo(0, split + 0.5);
+    g.lineTo(size.width, split + 0.5);
+    g.stroke();
+    g.setLineDash([]);
 
     const bars = Math.floor((size.width + BAR_GAP) / (BAR + BAR_GAP));
     const to = view.startMs + (bars * (BAR + BAR_GAP) * view.spanMs) / size.width;
@@ -171,7 +220,7 @@ export function Timeline({ doc, lineIndex, word, view, setView, lanes, flags, du
   }, [cache]);
 
   // Redrawn when what it shows changes, not on every render (a drag re-renders on each move).
-  const bgKey = [view.startMs, view.spanMs, size.width, size.height, dpr, lanes.vocals, lanes.spect, lanes.mix, !!layout.ghost, audio.loading].join("|");
+  const bgKey = [view.startMs, view.spanMs, size.width, size.height, dpr, lanes.vocals, lanes.spect, lanes.mix, !!layout.ghost, rowCount, base.lineRows, audio.loading].join("|");
   useEffect(() => {
     drawBg();
     if (cache && layout.spect && size.width > 0) {
@@ -214,43 +263,50 @@ export function Timeline({ doc, lineIndex, word, view, setView, lanes, flags, du
       if (t === null || flag.suggestMs === undefined) continue;
       const a = x(Math.min(t, flag.suggestMs));
       const b = x(Math.max(t, flag.suggestMs));
+      if (b < 0 || a > size.width) continue;
       g.fillStyle = withAlpha(cssVar("--warn"), 0.18);
       g.fillRect(a, top + 6, Math.max(2, b - a), bottom - top - 6);
     }
 
-    // Neighbouring lines' starts: dashed, labelled "ln 8".
-    g.font = `11px ${cssVar("--font-mono")}`;
-    g.textBaseline = "top";
-    for (const e of [edges.prev, edges.next]) {
-      if (!e) continue;
-      const t = shown.lines[e.lineIndex]!.timestamp!;
-      const lx = Math.round(x(t)) + 0.5;
-      if (lx < -40 || lx > size.width + 1) continue;
-      g.strokeStyle = accent;
-      g.lineWidth = 1;
-      g.setLineDash([4, 4]);
+    // The selected word's start and end down through the audio lanes, so the end can be checked against the
+    // voice; with no word selected, the group's start.
+    const line = (t: number, color: string, w: number, dashed = false) => {
+      const lx = Math.round(x(t) - w / 2);
+      if (lx < -4 || lx > size.width + 4) return;
+      if (!dashed) {
+        g.fillStyle = color;
+        g.fillRect(lx, top, w, bottom - top);
+        return;
+      }
+      g.strokeStyle = color;
+      g.lineWidth = w;
+      g.setLineDash([5, 4]);
       g.beginPath();
-      g.moveTo(lx, 0);
-      g.lineTo(lx, bottom);
+      g.moveTo(lx + w / 2, top);
+      g.lineTo(lx + w / 2, bottom);
       g.stroke();
       g.setLineDash([]);
-      g.fillStyle = accent;
-      g.fillText(`ln ${e.lineIndex + 1}`, lx + 5, layout.words.y + 2);
+    };
+    if (selectedBlock) {
+      g.fillStyle = withAlpha(accent, 0.07);
+      g.fillRect(x(selectedBlock.start), top, x(selectedBlock.end) - x(selectedBlock.start), bottom - top);
+      line(selectedBlock.start, accent, 2);
+      line(selectedBlock.end, withAlpha(accent, selectedBlock.derived ? 0.5 : 0.9), selectedBlock.derived ? 1 : 2, selectedBlock.derived);
+    } else {
+      for (const b of rows.blocks) if (b.group === group) line(b.start, withAlpha(cssVar("--text-1"), 0.22), 1);
     }
 
-    // Word starts (or the line start when the line has no word timings).
-    const startLine = (t: number, color: string, w: number) => {
-      g.fillStyle = color;
-      g.fillRect(Math.round(x(t) - w / 2), top, w, bottom - top);
-    };
-    if (blocks.length > 0) {
-      for (const b of blocks) {
-        const selected = b.index === word || (word === null && b.index === 0);
-        const color = selected ? accent : flaggedWords.has(b.index) ? cssVar("--warn") : withAlpha(cssVar("--text-1"), 0.3);
-        startLine(b.start, color, selected ? 2 : 1);
-      }
-    } else if (line?.timestamp != null) {
-      startLine(line.timestamp, accent, 2);
+    // The word tapped last in a retap grows with the playhead until the next tap.
+    if (live) {
+      const row = rowOf.get(live.group) ?? 0;
+      const x0 = x(live.start);
+      const x1 = Math.max(x0 + 2, x(heard));
+      g.fillStyle = withAlpha(accent, 0.55);
+      g.beginPath();
+      g.roundRect(x0, rowY(row) + BLOCK_TOP, x1 - x0, BLOCK_H, 6);
+      g.fill();
+      g.fillStyle = withAlpha(accent, 0.08);
+      g.fillRect(x0, top, x1 - x0, bottom - top);
     }
 
     const px = Math.round(x(heard));
@@ -264,10 +320,25 @@ export function Timeline({ doc, lineIndex, word, view, setView, lanes, flags, du
       g.closePath();
       g.fill();
     }
+
+    // Words being sung light up.
+    const playing = player.getState().playing;
+    for (const b of rows.blocks) {
+      const el = blockEls.current.get(b.id);
+      if (el) el.classList.toggle("sung", playing && heard >= b.start && heard < b.end);
+    }
   };
   const drawFgRef = useRef(drawFg);
   drawFgRef.current = drawFg;
-  usePositionEffect((_, heard) => drawFgRef.current(heard));
+  usePositionEffect((_, heard) => {
+    drawFgRef.current(heard);
+    // Page along with the playhead while the song plays (not while a word or line plays on its own).
+    const st = player.getState();
+    const { view: v } = live$.current;
+    if (st.playing && st.segmentEnd === null && !gesture.current && (heard > v.startMs + v.spanMs * 0.94 || heard < v.startMs)) {
+      setView((cur) => clampView({ ...cur, startMs: heard - cur.spanMs * 0.08 }, live$.current.durationMs));
+    }
+  });
   useLayoutEffect(() => drawFg(player.heardPosition()));
 
   // ---------------------------------------------------------------- pointer
@@ -312,41 +383,66 @@ export function Timeline({ doc, lineIndex, word, view, setView, lanes, flags, du
     player.seek(clampSong(msAt(view, size.width, e.clientX - r.left)));
     gesture.current = { kind: "seek" };
     follow(
-      (m) => player.seek(clampSong(msAt(live.current.view, live.current.size.width, lanesPoint(m.clientX)))),
+      (m) => player.seek(clampSong(msAt(live$.current.view, live$.current.size.width, lanesPoint(m.clientX)))),
       () => (gesture.current = null),
     );
   };
 
-  const onBlockDown = (e: ReactPointerEvent, index: number, start: number) => {
+  const tipText = (d: LyricsDoc, g: Extract<Gesture, { kind: "block" }>) => {
+    const w = d.groups[g.group]?.words[g.word];
+    if (!w || w.start === null) return "";
+    if (g.edge === "start") return `starts ${seconds(w.start)}`;
+    if (g.edge === "end") return `ends ${w.end === null ? "–" : seconds(w.end)}`;
+    return w.end === null ? `starts ${seconds(w.start)}` : `${seconds(w.start)} → ${seconds(w.end)}`;
+  };
+
+  const onBlockDown = (e: ReactPointerEvent, b: WordBlock, edge: Edge) => {
     e.stopPropagation();
-    if (e.button !== 0) return;
-    const g: Gesture = { kind: "block", word: index, x0: e.clientX, start, moved: false, ms: start };
+    if (e.button !== 0 || locked) return;
+    const w = doc.groups[b.group]?.words[b.word];
+    if (!w || w.start === null) return;
+    const g: Gesture = {
+      kind: "block",
+      edge,
+      group: b.group,
+      word: b.word,
+      x0: e.clientX,
+      start: w.start,
+      end: w.end,
+      drawnEnd: b.end,
+      moved: false,
+      additive: e.shiftKey || e.metaKey || e.ctrlKey,
+    };
     gesture.current = g;
     follow(
       (m) => {
         const dx = m.clientX - g.x0;
         if (!g.moved && Math.abs(dx) < DRAG_THRESHOLD) return;
         g.moved = true;
-        g.ms = clampSong(round10(g.start + (dx * view.spanMs) / size.width));
-        setDrag({ word: index, ms: g.ms });
+        const next = dragged(doc, g, (dx * view.spanMs) / size.width, durationMs);
+        setDrag({ doc: next, tip: { x: lanesPoint(m.clientX), text: tipText(next, g) } });
       },
-      () => {
+      (u) => {
         gesture.current = null;
         setDrag(null);
-        select(lineIndex, index);
+        if (!g.moved) {
+          onPickWord(g.group, g.word, g.additive);
+          if (!player.getState().playing) player.seek(g.start);
+          return;
+        }
+        onPickWord(g.group, g.word, false);
         const d = currentDoc();
-        if (g.moved && d) commit(moveTarget(d, { line: lineIndex, word: index }, g.ms, durationMs), "drag");
-        else if (!player.getState().playing) player.seek(start);
+        if (d) commit(dragged(d, g, ((u.clientX - g.x0) * view.spanMs) / size.width, durationMs), g.edge === "end" ? "drag end" : "drag");
       },
     );
   };
 
   const onGhostDown = (e: ReactPointerEvent, index: number) => {
     e.stopPropagation();
-    if (e.button !== 0) return;
-    const g: Gesture = { kind: "ghost", word: index, x0: e.clientX, y0: e.clientY, moved: false, ms: null };
+    if (e.button !== 0 || locked) return;
+    const g: Gesture = { kind: "ghost", group, word: index, x0: e.clientX, y0: e.clientY, moved: false, ms: null };
     gesture.current = g;
-    select(lineIndex, index);
+    onPickWord(group, index, false);
     follow(
       (m) => {
         if (!g.moved && Math.hypot(m.clientX - g.x0, m.clientY - g.y0) < DRAG_THRESHOLD) return;
@@ -355,30 +451,44 @@ export function Timeline({ doc, lineIndex, word, view, setView, lanes, flags, du
         const r = lanesBox.current?.getBoundingClientRect();
         const inside = !!r && px >= 0 && px <= size.width && m.clientY >= r.top && m.clientY <= r.bottom;
         g.ms = inside ? clampSong(round10(msAt(view, size.width, px))) : null;
-        setDrag(g.ms === null ? null : { word: index, ms: g.ms });
+        setDrag(g.ms === null ? null : { doc: moveTarget(doc, { line: g.group, word: g.word }, g.ms, durationMs), tip: { x: px, text: `starts ${seconds(g.ms)}` } });
       },
       () => {
         gesture.current = null;
         setDrag(null);
         const d = currentDoc();
-        if (g.moved && g.ms !== null && d) commit(moveTarget(d, { line: lineIndex, word: index }, g.ms, durationMs), "drag");
+        if (g.moved && g.ms !== null && d) commit(moveTarget(d, { line: g.group, word: g.word }, g.ms, durationMs), "drag");
       },
     );
   };
 
+  const playBlock = (b: WordBlock) => player.playSegment(b.start, b.end);
+
   // ---------------------------------------------------------------- DOM
 
   const labelTop = (band: { y: number; h: number } | null) => (band ? band.y + band.h / 2 - 7 : 0);
-  const hasTimings = !!line && hasWordTimings(line);
-  const noteFlag = flags.find((f) => f.suggestMs !== undefined || f.wordIndex !== undefined) ?? flags[0];
+  const selectedFlags = flags.filter((f) => f.lineIndex === group);
+  const noteFlag = selectedFlags.find((f) => f.suggestMs !== undefined || f.wordIndex !== undefined) ?? selectedFlags[0];
   const noteAt = noteFlag ? flagTime(shown, noteFlag) : null;
   const noteX = noteFlag && noteAt !== null ? x(Math.max(noteAt, noteFlag.suggestMs ?? noteAt)) + 5 : null;
   const noteY = (layout.vocals ?? layout.spect ?? layout.mix)?.y;
+  const inView = (from: number, to: number) => x(to) >= -40 && x(from) <= size.width + 40;
+  const nothingTimed = rows.blocks.length === 0;
+
+  // A block's text may run past its end, up to the next block of its group: short words stay readable.
+  const room = (b: WordBlock) => {
+    let next = b.start + 4000;
+    for (const o of rows.blocks) if (o.group === b.group && o.start > b.start && o.start < next) next = o.start;
+    return Math.max(x(b.end), x(next)) - x(b.start) - 12;
+  };
 
   return (
     <div className="refine-timeline">
       <div className="refine-lane-labels" aria-hidden="true">
-        <span style={{ top: labelTop(layout.words) }}>Words</span>
+        <span style={{ top: rowY(0) + ROW_H / 2 - 7 }}>Lines</span>
+        <span className="labelled" style={{ top: rowY(base.lineRows) + ROW_H / 2 - 7 }}>
+          Labelled
+        </span>
         {layout.vocals && (
           <span className="vocals" style={{ top: labelTop(layout.vocals) }}>
             Vocals
@@ -392,82 +502,115 @@ export function Timeline({ doc, lineIndex, word, view, setView, lanes, flags, du
         {layout.mix && <span style={{ top: labelTop(layout.mix) }}>Mix</span>}
       </div>
 
-      <div ref={lanesBox} className="refine-lanes" onPointerDown={onLanesDown}>
+      <div ref={lanesBox} className={locked ? "refine-lanes locked" : "refine-lanes"} onPointerDown={onLanesDown}>
         <canvas ref={bgCanvas} className="refine-canvas" />
 
-        {edges.prev && (
-          <EdgeBlock left={x(edges.prev.start)} width={x(edges.prev.end) - x(edges.prev.start) - 3} top={layout.words.y + 8} text={edges.prev.text} onSelect={() => select(edges.prev!.lineIndex)} />
-        )}
-        {edges.next && (
-          <EdgeBlock left={x(edges.next.start)} width={x(edges.next.end) - x(edges.next.start) - 3} top={layout.words.y + 8} text={edges.next.text} onSelect={() => select(edges.next!.lineIndex)} />
-        )}
-
-        {blocks.map((b) => {
-          const selected = b.index === word;
-          const flagged = flaggedWords.has(b.index);
-          const left = x(b.start);
-          const width = Math.max(10, x(b.end) - left - 3);
-          if (left > size.width || left + width < 0) return null;
-          const cls = ["refine-block", selected && "selected", flagged && "flagged", drag?.word === b.index && "dragging"].filter(Boolean).join(" ");
+        {rows.bands.map((band) => {
+          const g = shown.groups[band.group]!;
+          if (!inView(band.start, band.end)) return null;
+          const row = rowOf.get(band.group) ?? band.row;
+          const hue = isLabelled(g) ? labelHue(g.labels[0]!) : "var(--muted-1)";
+          const cls = ["refine-band", band.group === group && "selected", dimmed(g) && "dim"].filter(Boolean).join(" ");
           return (
-            <button
-              key={b.index}
-              type="button"
+            <div
+              key={g.id}
               className={cls}
-              style={{ left, width, top: layout.words.y + 8 }}
-              aria-pressed={selected}
-              aria-label={`${b.parts.join(" ")}, starts ${seconds(b.start)}`}
-              title="Drag to move where the word starts"
-              onPointerDown={(e) => onBlockDown(e, b.index, doc.lines[lineIndex]?.words?.[b.index]?.start ?? b.start)}
-              onClick={(e) => e.preventDefault()}
+              style={{ left: x(band.start) - 6, width: x(band.end) - x(band.start) + 12, top: rowY(row) + 2, height: ROW_H - 4, "--c": hue } as CSSProperties}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                if (e.button === 0 && !locked) onPickGroup(band.group);
+              }}
+              onDoubleClick={() => player.playSegment(band.start, band.end)}
+              title={isLabelled(g) ? `Group ${band.group + 1} · ${g.labels.join(", ")} — double-click to play it` : `Line ${band.group + 1} — double-click to play it`}
             >
-              <span className="grip" />
-              {b.splits.map((s, i) => (
-                <span key={i} className="split" style={{ left: x(s) - left }} />
-              ))}
-              <span className="word">
-                {b.parts.map((p, i) => (
-                  <span key={i} className="part">
-                    {i > 0 && <Icon.Link size={12} aria-label="joined" />}
-                    {p}
-                  </span>
-                ))}
-                {flagged && <Icon.Warning size={13} className="flag-icon" />}
+              <span className="tag">
+                <span className="num">{band.group + 1}</span>
+                {isLabelled(g) && <LabelChips labels={g.labels} small />}
               </span>
-              <span className="time">{seconds(b.start)}</span>
-            </button>
+            </div>
           );
         })}
 
-        {!hasTimings && (
+        {rows.blocks.map((b) => {
+          const left = x(b.start);
+          const width = Math.max(10, x(b.end) - left - 2);
+          if (left > size.width + 20 || left + width < -20) return null;
+          const g = shown.groups[b.group]!;
+          const row = rowOf.get(b.group) ?? 0;
+          const isSel = b.group === group && b.word === word;
+          const isPicked = picked.has(b.id);
+          const flagged = flaggedWords.has(`${b.group}:${b.word}`);
+          const hue = isLabelled(g) ? labelHue(g.labels[0]!) : "var(--muted-1)";
+          const cls = [
+            "refine-block",
+            isSel && "selected",
+            !isSel && isPicked && "picked",
+            flagged && "flagged",
+            b.derived && "derived",
+            dimmed(g) && "dim",
+            drag && gesture.current?.kind === "block" && gesture.current.group === b.group && gesture.current.word === b.word && "dragging",
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return (
+            <div
+              key={b.id}
+              ref={(el) => {
+                if (el) blockEls.current.set(b.id, el);
+                else blockEls.current.delete(b.id);
+              }}
+              role="button"
+              tabIndex={-1}
+              className={cls}
+              style={{ left, width, top: rowY(row) + BLOCK_TOP, "--c": hue } as CSSProperties}
+              aria-pressed={isSel || isPicked}
+              aria-label={`${b.parts.join(" ")}, ${seconds(b.start)} to ${b.derived ? "the next word" : seconds(b.end)}`}
+              title={`${b.parts.join(" ")} · ${seconds(b.start)} → ${b.derived ? `${seconds(b.end)} (no end: until the next word)` : seconds(b.end)}`}
+              onPointerDown={(e) => onBlockDown(e, b, "move")}
+              onDoubleClick={() => playBlock(b)}
+            >
+              <span className="h l" onPointerDown={(e) => onBlockDown(e, b, "start")} />
+              {b.splits.map((s, i) => (
+                <span key={i} className="split" style={{ left: x(s) - left }} />
+              ))}
+              <span className="word" style={{ maxWidth: Math.max(0, room(b)) }}>
+                {b.parts.map((p, i) => (
+                  <span key={i} className="part">
+                    {i > 0 && <Icon.Link size={11} aria-label="joined" />}
+                    {p}
+                  </span>
+                ))}
+                {flagged && <Icon.Warning size={12} className="flag-icon" />}
+              </span>
+              <span className="h r" onPointerDown={(e) => onBlockDown(e, b, "end")} />
+            </div>
+          );
+        })}
+
+        {drag?.tip && (
+          <span className="refine-drag-tip" style={{ left: drag.tip.x + 10, top: layout.words.y + 2 }}>
+            {drag.tip.text}
+          </span>
+        )}
+
+        {nothingTimed && (
           <div className="refine-lane-hint" style={{ top: layout.words.y, height: layout.words.h }}>
-            {line?.timestamp == null ? (
-              <>
-                This line has no start yet — tap it on the Lines step.
-                <button type="button" className="refine-link" onClick={() => goToStep("lines")}>
-                  Go to Lines
-                </button>
-              </>
-            ) : (
-              <>
-                No word timings in this line yet — tap them on the Words step. The line start can still be moved here.
-                <button type="button" className="refine-link" onClick={() => goToStep("words")}>
-                  Go to Words
-                </button>
-              </>
-            )}
+            No timed words around here. Tap line starts on the Lines step, then the words on the Words step.
+            <button type="button" className="refine-link" onClick={() => goToStep("lines")}>
+              Go to Lines
+            </button>
           </div>
         )}
 
         {layout.ghost && (
           <div className="refine-ghosts" style={{ top: layout.ghost.y, height: layout.ghost.h }}>
-            <span className="label">No start yet — drag onto the timeline:</span>
+            <span className="label">No start yet in group {group + 1} — drag onto the timeline:</span>
             {untimed.map((u) => (
               <button
-                key={u.index}
+                key={u.word}
                 type="button"
-                className={u.index === word ? "refine-ghost selected" : "refine-ghost"}
-                onPointerDown={(e) => onGhostDown(e, u.index)}
+                className={u.word === word ? "refine-ghost selected" : "refine-ghost"}
+                onPointerDown={(e) => onGhostDown(e, u.word)}
               >
                 {u.text}
               </button>
@@ -486,21 +629,6 @@ export function Timeline({ doc, lineIndex, word, view, setView, lanes, flags, du
         <canvas ref={fgCanvas} className="refine-canvas overlay" />
       </div>
     </div>
-  );
-}
-
-function EdgeBlock({ left, width, top, text, onSelect }: { left: number; width: number; top: number; text: string; onSelect: () => void }) {
-  return (
-    <button
-      type="button"
-      className="refine-block edge"
-      style={{ left, width: Math.max(10, width), top }}
-      title="Another line — click to refine it"
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={onSelect}
-    >
-      <span className="word">{text}</span>
-    </button>
   );
 }
 
@@ -524,7 +652,7 @@ function SeparateOffer({ band }: { band: { y: number; h: number } }) {
         </span>
       ) : (
         <>
-          <span>No separated vocals yet. With them, this lane shows where the voice is, and the spectrogram gets clearer.</span>
+          <span>No separated vocals yet. With them, this lane shows where the voice is, word ends can be fitted to it, and the spectrogram gets clearer.</span>
           <Button variant="secondary" size="sm" icon={<Icon.Mic size={16} />} onClick={() => void startJob("separate")}>
             Separate vocals
           </Button>

@@ -1,6 +1,6 @@
 // LRCLIB results as the Lyrics step shows them: sorted against the track, described for the result rows.
 
-import type { LrcLine } from "../../../core/lrc-document";
+import type { Group } from "../../../core/lyrics";
 import { durationMatch, type DurationMatch } from "../../../core/lrclib-match";
 import type { LrclibResult, TimingLevel } from "../../../shared/api";
 import { shortClock } from "../../lib/format";
@@ -37,9 +37,9 @@ export function describeResult(r: LrclibResult, trackMs: number | null): ResultV
   };
 }
 
-/** The result's lyrics as lines: synced ones keep their times. */
-export function resultLyrics(r: LrclibResult): { lines: LrcLine[]; timing: TimingLevel } {
-  if (r.instrumental) return { lines: [], timing: "none" };
+/** The result's lyrics as groups: synced ones keep their times. */
+export function resultLyrics(r: LrclibResult): { groups: Group[]; timing: TimingLevel } {
+  if (r.instrumental) return { groups: [], timing: "none" };
   if (r.syncedLyrics) return parseLyricsText(r.syncedLyrics, { lrc: true });
   return parseLyricsText(r.plainLyrics ?? "");
 }

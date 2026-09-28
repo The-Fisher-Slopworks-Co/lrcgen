@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { draftProgress, type DraftProgress } from "../../core/draft-status";
-import type { LrcDocument } from "../../core/lrc-document";
+import type { LyricsDoc } from "../../core/lyrics";
 import type { AppInfo, Draft, JobKind, JobState, Step, TrackInfo, Transcript, WebSettings } from "../../shared/api";
 import { useRoute } from "../routing/router";
 import { useStore, type Selection, type SongState } from "./app-state";
@@ -23,7 +23,7 @@ export function useSong(): SongState | null {
 }
 
 /** The open song's current document. Throws outside a song: screens only render inside one. */
-export function useDoc(): LrcDocument {
+export function useDoc(): LyricsDoc {
   const doc = useStore((s) => s.song?.history.present.value ?? null);
   if (!doc) throw new Error("useDoc() outside an open song");
   return doc;

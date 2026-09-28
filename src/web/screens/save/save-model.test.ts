@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Flag } from "../../../core/flags";
-import type { LrcDocument } from "../../../core/lrc-document";
+import type { LyricsDoc } from "../../../core/lyrics";
+import { doc as docOfGroups, group } from "../../../core/testing";
 import { backupNames, fileSuffixes, joinedNote, joinedOnSave, parseLrcPath, publishChecklist, savedMessage, splitPath } from "./save-model";
 
 describe("paths", () => {
@@ -33,15 +34,7 @@ describe("paths", () => {
 });
 
 describe("untimed words in Enhanced LRC", () => {
-  const doc: LrcDocument = {
-    metadata: { tool: "t" },
-    lines: [
-      { timestamp: 1000, text: "a b", words: [{ start: 1000, text: "a " }, { start: null, text: "b" }] },
-      { timestamp: 2000, text: "c — d", words: [{ start: 2000, text: "c " }, { start: null, text: "— " }, { start: 2500, text: "d" }] },
-      { timestamp: 3000, text: "e f", words: [{ start: null, text: "e " }, { start: null, text: "f" }] },
-      { timestamp: 4000, text: "g h", words: [{ start: null, text: "g " }, { start: 4200, text: "h" }] },
-    ],
-  };
+  const doc = docOfGroups(group("a b", [1000, null]), group("c — d", [2000, null, 2500]), group("e f"), group("g h", [null, 4200]));
 
   test("only untimed words after a timed one are joined; punctuation doesn't count", () => {
     expect(joinedOnSave(doc)).toEqual([0]);
@@ -56,13 +49,9 @@ describe("untimed words in Enhanced LRC", () => {
 });
 
 describe("publish checklist", () => {
-  const timed: LrcDocument = {
+  const timed: LyricsDoc = {
     metadata: { tool: "t", artist: "A", title: "T", album: "Al" },
-    lines: [
-      { timestamp: 1000, text: "one", words: [{ start: 1000, text: "one" }] },
-      { timestamp: null, text: "" },
-      { timestamp: 2000, text: "two", words: [{ start: 2000, text: "two" }] },
-    ],
+    groups: docOfGroups(group("one a", [1000, 1100]), group("two b", [2000, 2100])).groups,
   };
   const flag: Flag = { id: "f", kind: "words-out-of-order", lineIndex: 8, wordIndex: 1, message: "m" };
 
@@ -88,12 +77,12 @@ describe("publish checklist", () => {
   });
 
   test("untimed lines and an unknown length block; missing word timings only warn", () => {
-    const partial = { ...timed, lines: [timed.lines[0]!, { timestamp: 3000, text: "three" }, { timestamp: null, text: "four" }] };
+    const partial = { ...timed, groups: docOfGroups(timed.groups[0]!, group("three c", [3000]), group("four d")).groups };
     const c = publishChecklist(partial, null, []);
     expect(c.rows[1]).toMatchObject({ ok: false, blocking: true });
     expect(c.rows[2]).toMatchObject({ ok: false, blocking: true, text: "2 of 3 lines timed · 1 with word timings" });
     expect(c.blockers).toEqual(["The track's length is unknown", "1 line has no start time"]);
-    const wordsOnly = publishChecklist({ ...timed, lines: [timed.lines[0]!, { timestamp: 3000, text: "three" }] }, 1000, []);
+    const wordsOnly = publishChecklist({ ...timed, groups: docOfGroups(timed.groups[0]!, group("three c", [3000])).groups }, 1000, []);
     expect(wordsOnly.rows[2]).toMatchObject({ ok: false, blocking: false, text: "All 2 lines timed · 1 of 2 with word timings" });
   });
 

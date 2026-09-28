@@ -1,6 +1,7 @@
 // Transport actions shared by the footer, the global keys and screens: play/pause, vocals only, loop line,
 // previous/next line. "Loop line" follows the selection: selecting another line moves the loop to it.
 
+import { groupStart } from "../../core/lyrics";
 import { lineSpan, timedLineFrom } from "../lib/timing";
 import { player } from "../audio/player";
 import { currentSong, patchSong, select, toast } from "./actions";
@@ -49,10 +50,11 @@ export function stepLine(dir: 1 | -1): void {
   const song = currentSong();
   if (!song) return;
   const doc = song.history.present.value;
-  const target = Math.min(Math.max(0, song.selection.line + dir), Math.max(0, doc.lines.length - 1));
+  const target = Math.min(Math.max(0, song.selection.line + dir), Math.max(0, doc.groups.length - 1));
   select(target);
-  const t = doc.lines[target]?.timestamp;
-  if (t == null) return;
+  const group = doc.groups[target];
+  const t = group ? groupStart(group) : null;
+  if (t === null) return;
   if (player.getState().playing) player.play(t);
   else player.seek(t);
 }
@@ -61,9 +63,10 @@ export function stepLine(dir: 1 | -1): void {
 export function seekToLine(index: number): void {
   const song = currentSong();
   if (!song) return;
-  const i = timedLineFrom(song.history.present.value, index, -1);
-  const t = i >= 0 ? song.history.present.value.lines[i]!.timestamp : null;
-  if (t != null) player.seek(t);
+  const doc = song.history.present.value;
+  const i = timedLineFrom(doc, index, -1);
+  const t = i >= 0 ? groupStart(doc.groups[i]!) : null;
+  if (t !== null) player.seek(t);
 }
 
 function selectedLineSpan() {

@@ -4,7 +4,7 @@
 import type { Flag, FlagKind } from "../../../core/flags";
 import { draftProgress } from "../../../core/draft-status";
 import { isEnhancedLrcPath } from "../../../core/enhanced-lrc";
-import type { LrcDocument } from "../../../core/lrc-document";
+import { isSung, type LyricsDoc } from "../../../core/lyrics";
 import { shortClock } from "../../lib/format";
 
 export function baseName(path: string): string {
@@ -53,6 +53,15 @@ export function backupNames(existing: string[]): string[] {
   return existing.map((p) => `${baseName(p)}.bak`);
 }
 
+/**
+ * The existing files a save with `format` replaces (the lyrics file always, LRC files unless no LRC is written),
+ * and the LRC files it leaves as they are.
+ */
+export function replacedFiles(existing: string[], lyricsPath: string, format: "enhanced" | "lines" | "none"): { replaced: string[]; kept: string[] } {
+  if (format !== "none") return { replaced: existing, kept: [] };
+  return { replaced: existing.filter((p) => p === lyricsPath), kept: existing.filter((p) => p !== lyricsPath) };
+}
+
 /** "Saved Song.lrc (+ Song.enhanced.lrc)". */
 export function savedMessage(written: string[]): string {
   const [first, ...rest] = written.map(baseName);
@@ -61,16 +70,16 @@ export function savedMessage(written: string[]): string {
 }
 
 /**
- * Lines (0-based) where a word without a start follows a timed one. Enhanced LRC can't mark a word as untimed,
+ * Groups (0-based) where a word without a start follows a timed one. Enhanced LRC can't mark a word as untimed,
  * so such a word is written joined to the word before it. Punctuation-only words don't count.
  */
-export function joinedOnSave(doc: LrcDocument): number[] {
+export function joinedOnSave(doc: LyricsDoc): number[] {
   const out: number[] = [];
-  doc.lines.forEach((line, i) => {
+  doc.groups.forEach((group, i) => {
     let timedBefore = false;
-    for (const w of line.words ?? []) {
+    for (const w of group.words) {
       if (w.start !== null) timedBefore = true;
-      else if (timedBefore && /[\p{L}\p{N}]/u.test(w.text)) {
+      else if (timedBefore && isSung(w)) {
         out.push(i);
         return;
       }
@@ -125,7 +134,7 @@ function capitalise(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-export function publishChecklist(doc: LrcDocument, durationMs: number | null, flags: Flag[]): Checklist {
+export function publishChecklist(doc: LyricsDoc, durationMs: number | null, flags: Flag[]): Checklist {
   const rows: CheckRow[] = [];
   const blockers: string[] = [];
 

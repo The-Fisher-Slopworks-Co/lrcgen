@@ -47,7 +47,7 @@ export function RecognizeView({ kind }: { kind: Kind }) {
         ? "done"
         : !sync && !hasKey
           ? "need-key"
-          : sync && lyricLineCount(doc.lines) === 0
+          : sync && lyricLineCount(doc.groups) === 0
             ? "need-lyrics"
             : job?.status === "error"
               ? "error"
@@ -135,13 +135,13 @@ export function RecognizeView({ kind }: { kind: Kind }) {
               <Button variant="primary" className="recognize-btn" kbd="Enter" onClick={toLines}>
                 Go to Lines
               </Button>
-              {!sync && transcript && doc.lines.length > 0 && (
+              {!sync && transcript && doc.groups.length > 0 && (
                 <Button variant="secondary" className="recognize-btn" onClick={() => offerTranscript(transcript)}>
                   Compare with your lyrics
                 </Button>
               )}
-              {sync && job?.lines && (
-                <Button variant="secondary" className="recognize-btn" onClick={() => applySync(job.lines!)}>
+              {sync && job?.groups && (
+                <Button variant="secondary" className="recognize-btn" onClick={() => applySync(job.groups!)}>
                   Apply the timings again
                 </Button>
               )}

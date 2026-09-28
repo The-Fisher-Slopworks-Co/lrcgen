@@ -3,7 +3,7 @@
 // empty document, otherwise the compare dialog asks what to keep; a lyrics sync puts its timings on the lines.
 
 import { adoptWordTimings, applyAlignment } from "../../core/lyrics-merge";
-import type { LrcDocument, LrcLine } from "../../core/lrc-document";
+import { groupText, withUniqueIds, type Group, type LyricsDoc } from "../../core/lyrics";
 import type { JobKind, JobState, Transcript } from "../../shared/api";
 import * as api from "../api/client";
 import { player } from "../audio/player";
@@ -75,9 +75,9 @@ export async function cancelJob(id: string): Promise<void> {
   }
 }
 
-/** What a lyrics sync aligns: the document's lines as text. */
-function lyricsToSync(doc: LrcDocument): string {
-  return doc.lines.map((line) => line.text).join("\n");
+/** What a lyrics sync aligns: the document's groups as text, one per line. */
+function lyricsToSync(doc: LyricsDoc): string {
+  return doc.groups.map(groupText).join("\n");
 }
 
 /** The open song's running job of a kind, if any. */
@@ -106,7 +106,7 @@ async function onJobDone(job: JobState): Promise<void> {
     return;
   }
   if (job.kind === "align") {
-    applySync(job.lines ?? []);
+    applySync(job.groups ?? []);
     return;
   }
   try {
@@ -136,7 +136,7 @@ export async function refreshTrack(): Promise<void> {
 export function offerTranscript(transcript: Transcript): void {
   const doc = currentDoc();
   if (!doc) return;
-  if (doc.lines.length === 0) {
+  if (doc.groups.length === 0) {
     applyTranscript(transcript, "replace");
     return;
   }
@@ -152,21 +152,21 @@ export function applyTranscript(transcript: Transcript, choice: TranscriptChoice
   const doc = currentDoc();
   if (!doc || choice === "keep") return;
   if (choice === "replace") {
-    const next: LrcDocument = { ...doc, lines: transcript.lines };
+    const next: LyricsDoc = { ...doc, groups: withUniqueIds(transcript.groups) };
     commit(next, "use transcription");
-    toast(`Transcription applied · ${plural(transcript.lines.length, "line")}`);
+    toast(`Transcription applied · ${plural(transcript.groups.length, "line")}`);
     return;
   }
-  const { doc: next, adopted } = adoptWordTimings(doc, transcript.lines);
+  const { doc: next, adopted } = adoptWordTimings(doc, transcript.groups);
   commit(next, "adopt word timings");
   toast(adopted ? `Word timings taken for ${plural(adopted, "line")}` : "No lines matched the transcription");
 }
 
-/** Puts a finished lyrics sync's timings on the open song's lines. */
-export function applySync(lines: LrcLine[]): void {
+/** Puts a finished lyrics sync's timings on the open song's groups. */
+export function applySync(groups: Group[]): void {
   const doc = currentDoc();
   if (!doc) return;
-  const { doc: next, synced } = applyAlignment(doc, lines);
+  const { doc: next, synced } = applyAlignment(doc, groups);
   if (synced === 0) {
     toast("The sync found no timings for these lines", { kind: "error" });
     return;

@@ -1,49 +1,33 @@
-import type { LrcDocument, LrcLine, LrcWord } from "./lrc-document";
-import { hasWordTimings, splitWords, withText } from "./lrc-document";
+import {
+  groupStart,
+  groupText,
+  hasWordTimings,
+  idsFor,
+  isTimed,
+  splitText,
+  withStart,
+  withText,
+  type Group,
+  type Ids,
+  type LyricsDoc,
+  type Word,
+} from "./lyrics";
 
-function hasTimings(line: LrcLine): boolean {
-  return line.timestamp !== null || hasWordTimings(line);
-}
+// Bringing timings from elsewhere onto a document: new lyrics that keep the timings of lines that still match,
+// word timings from a transcription, and the timings a lyrics sync found. Groups match by text, in order.
 
-/** For each line of `lines`, the index of the line in `candidates` it matches; matching only moves forward. Empty lines never match. */
-function matchInOrder(lines: LrcLine[], candidates: LrcLine[], key: (line: LrcLine) => string): (number | null)[] {
-  const keys = candidates.map(key);
+/** For each group of `groups`, the index of the group in `candidates` it matches; matching only moves forward. */
+function matchInOrder(groups: Group[], candidates: Group[]): (number | null)[] {
+  const keys = candidates.map((g) => normalize(groupText(g)));
   let next = 0;
-  return lines.map((line) => {
-    const k = key(line);
+  return groups.map((g) => {
+    const k = normalize(groupText(g));
     if (k === "") return null;
     const j = keys.indexOf(k, next);
     if (j === -1) return null;
     next = j + 1;
     return j;
   });
-}
-
-/** The line's timings (start, words, end) with `text`, which must spell out the same words. */
-function timingsWithText(timed: LrcLine, line: LrcLine): LrcLine {
-  const { words: _words, end: _end, ...rest } = line;
-  const result: LrcLine = { ...rest, timestamp: timed.timestamp };
-  if (timed.words) result.words = timed.words;
-  if (timed.end != null) result.end = timed.end;
-  return result;
-}
-
-/**
- * Swaps in new lyrics, keeping timings (line and word) for lines whose text still matches
- * one of the old lines, matched in order. Returns how many lines kept their timings.
- * Lines match ignoring case, punctuation and extra whitespace; the new text wins, and word timings survive
- * a changed text the way they survive a typo fix (same number of parts), otherwise only the line start does.
- */
-export function replaceLyrics(doc: LrcDocument, lines: LrcLine[]): { doc: LrcDocument; kept: number } {
-  const matches = matchInOrder(lines, doc.lines, (line) => normalize(line.text));
-  let kept = 0;
-  const merged = lines.map((line, i) => {
-    const old = matches[i] == null ? undefined : doc.lines[matches[i]!];
-    if (!old || !hasTimings(old)) return line;
-    kept++;
-    return old.text.trim() === line.text.trim() ? timingsWithText(old, line) : withText(old, line.text);
-  });
-  return { doc: { ...doc, lines: merged }, kept };
 }
 
 // Transcriptions and lyrics sites disagree on case, punctuation and quotes; "ё" is often written as "е".
@@ -57,76 +41,105 @@ function normalize(text: string): string {
     .trim();
 }
 
-/** How many whitespace-separated parts of the word are more than punctuation. */
-function partsOf(word: LrcWord): number {
-  return (word.text.match(/\S+/g) ?? []).filter((part) => normalize(part) !== "").length;
+/** The group with fresh ids for itself and its words. */
+function renumbered(group: Group, ids: Ids): Group {
+  return { ...group, id: ids.group(), words: group.words.map((w) => ({ ...w, id: ids.word() })) };
 }
 
 /**
- * The words of `shape` with starts taken from `source` part by part (punctuation-only parts like "—" don't count):
- * a word gets the start of the source word its first part lines up with, or null if that part sits inside a joined
- * source word or the word is only punctuation. Null if the parts don't line up.
+ * Swaps in new lyrics, keeping the timings (line and word) and labels of groups whose text still matches one of
+ * the old groups, matched in order. Returns how many groups kept their timings. Groups match ignoring case,
+ * punctuation and extra whitespace; the new text wins, and word timings survive a changed text the way they
+ * survive a typo fix (same number of parts), otherwise only the start does.
  */
-function mapStarts(shape: LrcWord[], source: LrcWord[]): LrcWord[] | null {
-  const starts = source.flatMap((w) => Array.from({ length: partsOf(w) }, (_, k) => (k === 0 ? w.start : null)));
+export function replaceLyrics(doc: LyricsDoc, groups: Group[]): { doc: LyricsDoc; kept: number } {
+  const matches = matchInOrder(groups, doc.groups);
+  const ids = idsFor(doc.groups);
+  let kept = 0;
+  const merged = groups.map((g, i) => {
+    const old = matches[i] == null ? undefined : doc.groups[matches[i]!];
+    if (!old || !isTimed(old)) return renumbered(g, ids);
+    kept++;
+    const next = withText(old, groupText(g), ids);
+    return old.labels.length > 0 || g.labels.length === 0 ? next : { ...next, labels: g.labels };
+  });
+  return { doc: { ...doc, groups: merged }, kept };
+}
+
+/** How many whitespace-separated parts of the word are more than punctuation. */
+function partsOf(word: Word): number {
+  return splitText(word.text).filter((part) => normalize(part) !== "").length;
+}
+
+/**
+ * `shape`'s words with starts taken from `source` part by part (punctuation-only parts like "—" don't count): a word
+ * starts where the source word its first part lines up with starts; null where that part sits inside a joined source
+ * word, or for a punctuation-only word. Null if the parts don't line up.
+ */
+function mapStarts(shape: Word[], source: Word[]): Word[] | null {
+  const parts = source.flatMap((w) => Array.from({ length: partsOf(w) }, (_, k) => (k === 0 ? w.start : null)));
   const sizes = shape.map(partsOf);
-  if (sizes.reduce((a, b) => a + b, 0) !== starts.length) return null;
+  if (sizes.reduce((a, b) => a + b, 0) !== parts.length) return null;
   let part = 0;
   return shape.map((w, i) => {
-    const start = sizes[i] === 0 ? null : (starts[part] ?? null);
-    part += sizes[i]!;
-    return { start, text: w.text };
+    const n = sizes[i]!;
+    const start = n === 0 ? null : (parts[part] ?? null);
+    part += n;
+    return { ...w, start, end: null };
   });
 }
 
-function adoptedWords(line: LrcLine, source: LrcLine): LrcWord[] | null {
-  const words = source.words!;
-  if (words.map((w) => w.text).join("") === line.text.trim()) return words;
-  // Keep the line's own joins if it has them, else split its text afresh.
-  const shapes = line.words ? [line.words, splitWords(line.text)] : [splitWords(line.text)];
-  for (const shape of shapes) {
-    const mapped = mapStarts(shape, words);
-    if (mapped) return mapped;
-  }
-  return null;
+/**
+ * The group's words with the source's starts, keeping its own joins when they line up, else split afresh. None of
+ * them keeps an end, the source's or its own: a word lasts until the next one starts unless someone sets its end.
+ */
+function adoptedWords(group: Group, source: Group, ids: Ids): Word[] | null {
+  const same = source.words.length === group.words.length && source.words.every((w, i) => w.text === group.words[i]!.text);
+  if (same) return group.words.map((w, i) => ({ ...w, start: source.words[i]!.start, end: null }));
+  const own = mapStarts(group.words, source.words);
+  if (own) return own;
+  const split = group.words.flatMap((w) => splitText(w.text).map((text, k) => ({ id: k === 0 ? w.id : ids.word(), text, start: null, end: null })));
+  return mapStarts(split, source.words);
 }
 
 /**
- * Copies word timings (and the line start) from `source` onto the lines of `doc` whose text matches,
- * ignoring case, punctuation and extra whitespace; lines are matched in order. The text of `doc` wins.
- * Used for "Use transcription" on the Words step. Returns how many lines got word timings.
+ * Copies word starts from `source` onto the groups of `doc` whose text matches, ignoring case, punctuation and
+ * extra whitespace; groups are matched in order. The text of `doc` wins, and the words it times lose their ends.
+ * Used for "Use transcription" on the Words step. Returns how many groups got word timings.
  */
-export function adoptWordTimings(doc: LrcDocument, source: LrcLine[]): { doc: LrcDocument; adopted: number } {
-  const matches = matchInOrder(doc.lines, source, (line) => normalize(line.text));
+export function adoptWordTimings(doc: LyricsDoc, source: Group[]): { doc: LyricsDoc; adopted: number } {
+  const matches = matchInOrder(doc.groups, source);
+  const ids = idsFor(doc.groups);
   let adopted = 0;
-  const lines = doc.lines.map((line, i) => {
+  const groups = doc.groups.map((g, i) => {
     const from = matches[i] == null ? undefined : source[matches[i]!];
-    if (!from || !hasWordTimings(from)) return line;
-    const words = adoptedWords(line, from);
-    if (!words) return line;
+    if (!from || !hasWordTimings(from)) return g;
+    const words = adoptedWords(g, from, ids);
+    if (!words) return g;
     adopted++;
-    return timingsWithText({ ...from, timestamp: from.timestamp ?? line.timestamp, words }, line);
+    return { ...g, words };
   });
-  return { doc: { ...doc, lines }, adopted };
+  return { doc: { ...doc, groups }, adopted };
 }
 
 /**
- * Puts the timings of a lyrics sync ("align" job) onto the lines of `doc`, which the sync was run on.
- * Lines are matched like adoptWordTimings (so edits made while it ran don't shift anything). A matched line
- * takes the new start and word timings; if only its start was found, its old word timings go too, as they'd
- * no longer fit. Returns how many lines got a start.
+ * Puts the timings of a lyrics sync ("align" job) onto the groups of `doc`, which the sync was run on. Groups are
+ * matched like adoptWordTimings (so edits made while it ran don't shift anything). A matched group takes the new
+ * word starts, and its words lose their ends; if only its start was found, its old word timings go, as they'd no
+ * longer fit. Returns how many groups got a start.
  */
-export function applyAlignment(doc: LrcDocument, source: LrcLine[]): { doc: LrcDocument; synced: number } {
-  const matches = matchInOrder(doc.lines, source, (line) => normalize(line.text));
+export function applyAlignment(doc: LyricsDoc, source: Group[]): { doc: LyricsDoc; synced: number } {
+  const matches = matchInOrder(doc.groups, source);
+  const ids = idsFor(doc.groups);
   let synced = 0;
-  const lines = doc.lines.map((line, i) => {
+  const groups = doc.groups.map((g, i) => {
     const from = matches[i] == null ? undefined : source[matches[i]!];
-    if (!from || from.timestamp === null) return line;
+    const start = from ? groupStart(from) : null;
+    if (!from || start === null) return g;
     synced++;
-    const words = hasWordTimings(from) ? adoptedWords(line, from) : null;
-    if (words) return timingsWithText({ ...from, words }, line);
-    const { words: _words, end: _end, ...rest } = line;
-    return { ...rest, timestamp: from.timestamp };
+    const words = hasWordTimings(from) ? adoptedWords(g, from, ids) : null;
+    if (words) return { ...g, words };
+    return withStart(withStart(g, null), start);
   });
-  return { doc: { ...doc, lines }, synced };
+  return { doc: { ...doc, groups }, synced };
 }

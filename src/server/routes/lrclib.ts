@@ -1,7 +1,7 @@
 import type { PublishResponse } from "../../shared/api";
 import type { ServerContext } from "../context";
 import { HttpError, badRequest, optionalQuery, readJson, type RouteTable } from "../http";
-import { lrcDocument } from "../validate";
+import { lyricsDoc } from "../validate";
 
 export function lrclibRoutes(ctx: ServerContext): RouteTable {
   return {
@@ -26,7 +26,7 @@ export function lrclibRoutes(ctx: ServerContext): RouteTable {
         const body = await readJson(req);
         if (typeof body.draftId !== "string") throw badRequest(`Missing "draftId"`);
         if (typeof body.durationMs !== "number" || !(body.durationMs > 0)) throw badRequest(`"durationMs" must be positive`);
-        const doc = lrcDocument(body.doc);
+        const doc = lyricsDoc(body.doc);
         const result = await ctx.registry.lyricsPublisher.publish(doc, body.durationMs);
         if (result.success) await ctx.drafts.mark(body.draftId, "publishedAt");
         const response: PublishResponse = result.success ? { success: true } : { success: false, error: result.error };

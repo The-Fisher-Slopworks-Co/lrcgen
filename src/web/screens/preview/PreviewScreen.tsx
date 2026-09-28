@@ -1,9 +1,10 @@
-// 6 · Preview (Preview board): the karaoke as it will look in a video, a whole-song timeline with line
-// starts and flags, readiness, and the way to Save & publish. ↑/↓ jump between lines, R replays the line.
+// 6 · Preview (Preview board): the karaoke as it will look in a video — backing vocals and ad-libs under the line
+// while they sound — a whole-song timeline with line starts and flags, readiness, and the way to Save & publish.
+// ↑/↓ jump between lines, R replays the line.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { isBacking } from "../../../core/backing";
-import { wordsOf } from "../../../core/lrc-document";
+import { flagTime } from "../../../core/flags";
+import { groupStart, groupText, isLabelled, type Group } from "../../../core/lyrics";
 import { useFlags } from "../../audio/audio-data";
 import { player, usePlayerState, usePositionEffect } from "../../audio/player";
 import { Button, KeyHint, Segmented } from "../../components/controls";
@@ -13,9 +14,19 @@ import { readLocal, writeLocal } from "../../lib/storage";
 import { lineSpan } from "../../lib/timing";
 import { select, useDoc, useDraftProgress, useTrack } from "../../state";
 import { reviewFlag } from "../refine/review";
-import { flagTime } from "../refine/word-blocks";
 import { openSaveDialog } from "../save/open-save";
-import { currentLineAt, fillBackground, jumpBase, jumpTarget, stageLines, wordFills, type Highlight, type JumpCursor, type LinesOnScreen } from "./karaoke";
+import {
+  currentLineAt,
+  fillBackground,
+  jumpBase,
+  jumpTarget,
+  overlaysAt,
+  stageLines,
+  wordFills,
+  type Highlight,
+  type JumpCursor,
+  type LinesOnScreen,
+} from "./karaoke";
 import "./preview.css";
 
 const BOARD_STAGE_W = 960;
@@ -65,7 +76,7 @@ export function PreviewScreen() {
     const target = jumpTarget(doc, jumpBase(doc, player.heardPosition(), cursor.current), dir);
     if (target === null) return;
     select(target);
-    const t = doc.lines[target]!.timestamp!;
+    const t = groupStart(doc.groups[target]!)!;
     cursor.current = { index: target, at: t };
     if (player.getState().playing) player.play(t);
     else player.seek(t);
@@ -73,7 +84,7 @@ export function PreviewScreen() {
 
   const replay = () => {
     const current = jumpBase(doc, player.heardPosition(), cursor.current);
-    player.play(current >= 0 ? doc.lines[current]!.timestamp! : 0);
+    player.play(current >= 0 ? (groupStart(doc.groups[current]!) ?? 0) : 0);
   };
 
   useHotkeys({ ArrowUp: () => jump(-1), ArrowDown: () => jump(1), R: { run: replay, repeat: false } });
@@ -96,41 +107,60 @@ function KaraokeStage({ width, highlight, count }: { width: number; highlight: H
   const track = useTrack();
   const duration = useDuration();
   const [current, setCurrent] = useState(() => currentLineAt(doc, player.heardPosition()));
-  const words = useRef<(HTMLSpanElement | null)[]>([]);
-  const painted = useRef<string[]>([]);
+  const [overlays, setOverlays] = useState<number[]>(() => overlaysAt(doc, player.heardPosition(), duration));
+  // Word spans by group index: the current line's and the overlays'.
+  const words = useRef(new Map<number, (HTMLSpanElement | null)[]>());
+  const painted = useRef(new Map<HTMLSpanElement, string>());
 
-  const line = current >= 0 ? doc.lines[current] : undefined;
-  const backing = !!line && isBacking(line);
-  const lineEndMs = current >= 0 ? (lineSpan(doc, current, duration)?.to ?? null) : null;
+  const onStage = (current >= 0 ? [current] : []).concat(overlays);
 
   const paint = (heard: number) => {
-    if (!line) return;
-    const fills = wordFills(line, heard, highlight, lineEndMs);
-    const rest = backing ? "var(--vocals)" : "var(--text-1)";
-    fills.forEach((fill, i) => {
-      const el = words.current[i];
-      if (!el) return;
-      const bg = fillBackground(fill, "var(--accent)", rest);
-      if (painted.current[i] !== bg) {
-        el.style.backgroundImage = bg;
-        painted.current[i] = bg;
-      }
-    });
+    for (const index of onStage) {
+      const group = doc.groups[index];
+      if (!group) continue;
+      const end = lineSpan(doc, index, duration)?.to ?? null;
+      const rest = isLabelled(group) ? "var(--vocals)" : "var(--text-1)";
+      wordFills(group, heard, highlight, end).forEach((fill, i) => {
+        const el = words.current.get(index)?.[i];
+        if (!el) return;
+        const bg = fillBackground(fill, "var(--accent)", rest);
+        if (painted.current.get(el) !== bg) {
+          el.style.backgroundImage = bg;
+          painted.current.set(el, bg);
+        }
+      });
+    }
   };
 
+  const sameList = (a: number[], b: number[]) => a.length === b.length && a.every((x, i) => x === b[i]);
   usePositionEffect((_, heard) => {
     const idx = currentLineAt(doc, heard);
+    const over = overlaysAt(doc, heard, duration);
     if (idx !== current) setCurrent(idx);
-    else paint(heard);
+    if (!sameList(over, overlays)) setOverlays(over);
+    if (idx === current && sameList(over, overlays)) paint(heard);
   });
 
-  // The document can change under us (undo); keep the line on stage in step with it.
-  useEffect(() => setCurrent(currentLineAt(doc, player.heardPosition())), [doc]);
+  // The document can change under us (undo); keep the lines on stage in step with it.
+  useEffect(() => {
+    setCurrent(currentLineAt(doc, player.heardPosition()));
+    setOverlays(overlaysAt(doc, player.heardPosition(), duration));
+  }, [doc, duration]);
 
   useLayoutEffect(() => {
-    painted.current = [];
+    painted.current.clear();
     paint(player.heardPosition());
   });
+
+  const wordSpans = (index: number, group: Group) => {
+    const refs: (HTMLSpanElement | null)[] = [];
+    words.current.set(index, refs);
+    return group.words.map((w, i) => (
+      <span key={w.id} ref={(el) => void (refs[i] = el)} className="preview-word">
+        {w.text}
+      </span>
+    ));
+  };
 
   const k = width / BOARD_STAGE_W;
   const lines = stageLines(doc, current, count);
@@ -154,22 +184,23 @@ function KaraokeStage({ width, highlight, count }: { width: number; highlight: H
               </div>
             );
           }
-          const l = doc.lines[slot.index]!;
+          const l = doc.groups[slot.index]!;
           return (
-            <p key={`c${slot.index}`} className={isBacking(l) ? "preview-line current backing" : "preview-line current"}>
-              {wordsOf(l).map((w, i) => (
-                <span key={i} ref={(el) => void (words.current[i] = el)} className="preview-word">
-                  {w.text.trim()}
-                </span>
+            <div key={`c${slot.index}`} className="preview-current">
+              <p className="preview-line current">{wordSpans(slot.index, l)}</p>
+              {overlays.map((index) => (
+                <p key={doc.groups[index]!.id} className="preview-line current backing">
+                  {wordSpans(index, doc.groups[index]!)}
+                </p>
               ))}
-            </p>
+            </div>
           );
         }
-        const l = slot.index !== null && slot.index >= 0 ? doc.lines[slot.index] : undefined;
-        const cls = ["preview-line", slot.role, l && isBacking(l) && "backing"].filter(Boolean).join(" ");
+        const l = slot.index !== null && slot.index >= 0 ? doc.groups[slot.index] : undefined;
+        const cls = ["preview-line", slot.role].join(" ");
         return (
           <p key={`${slot.role}${slot.index}`} className={cls} aria-hidden={!l}>
-            {l ? l.text.trim() : " "}
+            {l ? groupText(l) : " "}
           </p>
         );
       })}
@@ -188,7 +219,7 @@ function PreviewTimeline({ width }: { width: number }) {
   const ticks = useRef<(HTMLSpanElement | null)[]>([]);
   const box = useRef<HTMLDivElement>(null);
 
-  const starts = doc.lines.map((l) => (l.text.trim() !== "" ? l.timestamp : null));
+  const starts = doc.groups.map((g) => (g.words.length > 0 && !isLabelled(g) ? groupStart(g) : null));
   const x = (ms: number) => (duration > 0 ? Math.min(width, Math.max(0, (ms / duration) * width)) : 0);
 
   const paint = (heard: number) => {

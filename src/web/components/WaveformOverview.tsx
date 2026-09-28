@@ -5,8 +5,8 @@
 // Draws on a canvas; follows playback without re-rendering React.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Flag } from "../../core/flags";
-import type { LrcDocument } from "../../core/lrc-document";
+import { flagTime, type Flag } from "../../core/flags";
+import { groupStart, isLabelled, type LyricsDoc } from "../../core/lyrics";
 import { levels, maxOf, type AudioData } from "../audio/analysis";
 import { useAudioData, useFlags } from "../audio/audio-data";
 import { player, usePlayerState, usePositionEffect } from "../audio/player";
@@ -173,26 +173,21 @@ function renderBars(data: AudioData | null, width: number, height: number, dpr: 
   return { played: make(cssVar("--wave-played")), unplayed: make(cssVar("--wave-unplayed")) };
 }
 
-function drawMarks(g: CanvasRenderingContext2D, doc: LrcDocument, duration: number, width: number, height: number): void {
+/** Line starts, numbered like the Lines list; backing vocals and ad-libs get no mark. */
+function drawMarks(g: CanvasRenderingContext2D, doc: LyricsDoc, duration: number, width: number, height: number): void {
   g.fillStyle = cssVar("--accent");
   g.font = `10px ${cssVar("--font-mono")}`;
   g.textBaseline = "top";
-  doc.lines.forEach((line, i) => {
-    if (line.timestamp === null) return;
-    const x = (line.timestamp / duration) * width - 1;
+  doc.groups.forEach((group, i) => {
+    const start = isLabelled(group) ? null : groupStart(group);
+    if (start === null) return;
+    const x = (start / duration) * width - 1;
     g.fillRect(x, 0, 2, height);
     g.fillText(String(i + 1), x + 4, 1);
   });
 }
 
-function flagTime(doc: LrcDocument, flag: Flag): number | null {
-  const line = doc.lines[flag.lineIndex];
-  if (!line) return null;
-  if (flag.wordIndex !== undefined) return line.words?.[flag.wordIndex]?.start ?? line.timestamp;
-  return line.timestamp;
-}
-
-function drawFlags(g: CanvasRenderingContext2D, doc: LrcDocument, flags: Flag[], duration: number, width: number): void {
+function drawFlags(g: CanvasRenderingContext2D, doc: LyricsDoc, flags: Flag[], duration: number, width: number): void {
   g.fillStyle = cssVar("--warn");
   for (const flag of flags) {
     const t = flagTime(doc, flag);

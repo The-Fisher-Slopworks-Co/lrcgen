@@ -16,7 +16,7 @@ export function draftRoutes(ctx: ServerContext): RouteTable {
         let lyricsPath: string | undefined;
         if (body.lyricsPath !== undefined && body.lyricsPath !== null) {
           lyricsPath = clientPath(body.lyricsPath, "lyricsPath");
-          if (!isLyricsPath(lyricsPath)) throw badRequest("Only .lrc and .txt files can be read");
+          if (!isLyricsPath(lyricsPath)) throw badRequest("Only .lyrics.json, .lrc and .txt files can be read");
           if (!(await stat(lyricsPath).catch(() => null))?.isFile()) throw notFound(`File not found: ${lyricsPath}`);
         }
         return Response.json(await ctx.drafts.open(audioPath, lyricsPath));

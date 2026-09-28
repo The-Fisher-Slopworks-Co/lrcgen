@@ -115,7 +115,7 @@ export class PythonTranscriber implements Transcriber {
             const progress = { stage: event.stage, message: event.message };
             options.onProgress?.(event.progress === undefined ? progress : { ...progress, progress: event.progress });
           } else if (event.type === "result") {
-            result = { success: true, lines: event.lines, rawLyrics: event.rawLyrics };
+            result = { success: true, groups: event.groups, rawLyrics: event.rawLyrics };
           } else {
             result = { success: false, error: event.message };
           }

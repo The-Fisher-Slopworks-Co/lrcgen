@@ -1,13 +1,12 @@
 // "Worth a look N": one card per flag (Open in Refine / Listen / It's intended), a calm note when there are
 // none, and the "Short words" tip for the current line.
 
-import type { Flag, FlagKind } from "../../../core/flags";
+import { flagTime as timeOf, type Flag, type FlagKind } from "../../../core/flags";
 import { useFlags } from "../../audio/audio-data";
 import { player } from "../../audio/player";
 import { Button, Chip } from "../../components/controls";
 import { Icon } from "../../components/icons";
 import { currentDoc, dismissFlag, goToStep, restoreFlag, select, toast } from "../../state";
-import { wordsOf } from "../../../core/lrc-document";
 import { messageParts } from "./word-tapping";
 
 const KIND_LABELS: Record<FlagKind, string> = {
@@ -18,10 +17,8 @@ const KIND_LABELS: Record<FlagKind, string> = {
 
 /** Where a flag points: the word's start, else the line's. */
 function flagTime(flag: Flag): number | null {
-  const line = currentDoc()?.lines[flag.lineIndex];
-  if (!line) return null;
-  if (flag.wordIndex !== undefined) return wordsOf(line)[flag.wordIndex]?.start ?? null;
-  return line.timestamp;
+  const doc = currentDoc();
+  return doc ? timeOf(doc, flag) : null;
 }
 
 /** "It's intended": hides the flag for good, with a way back. */

@@ -42,6 +42,14 @@
   --vocals-dim: #34424a;
   --vocals-bg: #1f2a31;
 
+  /* Group labels ("backing", "adlib", anything typed): each label keeps one of these hues everywhere. */
+  --label-1: #86bde0;
+  --label-2: #b9a3f0;
+  --label-3: #8fd0a0;
+  --label-4: #f0a36b;
+  --label-5: #e6a3c9;
+  --label-6: #7fd1c7;
+
   --wave-played: #6d6556;
   --wave-unplayed: #3d382f;
 

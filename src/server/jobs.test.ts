@@ -103,7 +103,8 @@ describe("jobs", () => {
     await Bun.sleep(120); // long enough for a heartbeat
     call.options.onProgress?.({ stage: "demucs", message: "separating", progress: 0.5 });
     call.options.onProgress?.({ stage: "align", message: "aligning" });
-    call.resolve({ success: true, lines: [{ timestamp: 1000, text: "Hi" }], rawLyrics: "Hi" });
+    const hi = [{ id: "g1", labels: [], words: [{ id: "w1", text: "Hi", start: 1000, end: 1400 }] }];
+    call.resolve({ success: true, groups: hi, rawLyrics: "Hi" });
 
     const { events, comments } = await reading;
     expect(comments).toBeGreaterThan(0);
@@ -115,7 +116,7 @@ describe("jobs", () => {
     expect(done.job.finishedAt).toBeNumber();
 
     const transcript = (await (await t.api(`/api/transcripts/${draftIdFor(song)}`)).json()) as Transcript;
-    expect(transcript).toMatchObject({ draftId: draftIdFor(song), lines: [{ timestamp: 1000, text: "Hi" }], rawLyrics: "Hi" });
+    expect(transcript).toMatchObject({ draftId: draftIdFor(song), groups: hi, rawLyrics: "Hi" });
 
     // Getting past "init" means the dependencies are installed.
     expect(await Bun.file(path.join(t.dirs.cacheDir, "deps-ready")).exists()).toBe(true);
@@ -147,17 +148,20 @@ describe("jobs", () => {
     expect(events.at(-1)).toMatchObject({ type: "done", job: { status: "cancelled" } });
   });
 
-  test("align syncs the given lyrics and returns the lines on the job, leaving the transcript alone", async () => {
+  test("align syncs the given lyrics and returns the groups on the job, leaving the transcript alone", async () => {
     const before = await (await t.api(`/api/transcripts/${draftIdFor(song)}`)).json();
     const job = await start("align", song, "One\nTwo");
-    expect(job).toMatchObject({ kind: "align", status: "running", lines: null });
+    expect(job).toMatchObject({ kind: "align", status: "running", groups: null });
     const call = await fake.next();
     expect(call.options).toMatchObject({ separateOnly: false, lyrics: "One\nTwo" });
-    const lines = [{ timestamp: 500, text: "One" }, { timestamp: 1500, text: "Two" }];
-    call.resolve({ success: true, lines, rawLyrics: "One\nTwo" });
+    const groups = [
+      { id: "g1", labels: [], words: [{ id: "w1", text: "One", start: 500, end: 900 }] },
+      { id: "g2", labels: [], words: [{ id: "w2", text: "Two", start: 1500, end: null }] },
+    ];
+    call.resolve({ success: true, groups, rawLyrics: "One\nTwo" });
     await Bun.sleep(5);
     const [state] = (await (await t.api(`/api/jobs${q({ audioPath: song })}`)).json()) as JobState[];
-    expect(state).toMatchObject({ id: job.id, status: "done", lines });
+    expect(state).toMatchObject({ id: job.id, status: "done", groups });
     expect(await (await t.api(`/api/transcripts/${draftIdFor(song)}`)).json()).toEqual(before);
   });
 

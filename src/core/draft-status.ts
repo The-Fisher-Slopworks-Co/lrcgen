@@ -1,5 +1,4 @@
-import type { LrcDocument } from "./lrc-document";
-import { wordsComplete } from "./lrc-document";
+import { isLabelled, isTimed, wordsComplete, type LyricsDoc } from "./lyrics";
 
 export interface DraftProgress {
   totalLines: number;
@@ -11,18 +10,20 @@ export interface DraftProgress {
   status: string;
 }
 
-export function draftProgress(doc: LrcDocument, state: { published: boolean; openFlags: number }): DraftProgress {
-  // Empty lines are gaps between verses, not lyrics.
-  const lines = doc.lines.filter((line) => line.text.trim() !== "");
+export function draftProgress(doc: LyricsDoc, state: { published: boolean; openFlags: number }): DraftProgress {
+  // Backing vocals and ad-libs count once their words are timed, but a song is "lines" of its unlabelled groups.
+  const groups = doc.groups.filter((g) => g.words.length > 0);
+  const lines = groups.filter((g) => !isLabelled(g));
   const totalLines = lines.length;
-  const linesTimed = lines.filter((line) => line.timestamp !== null).length;
+  const linesTimed = lines.filter(isTimed).length;
   const linesWithWords = lines.filter(wordsComplete).length;
+  const allWords = groups.every(wordsComplete);
 
   let stepsDone = 0;
   if (totalLines > 0) {
     stepsDone = 1;
     if (linesTimed === totalLines) stepsDone = 2;
-    if (stepsDone === 2 && linesWithWords === totalLines) stepsDone = 3;
+    if (stepsDone === 2 && linesWithWords === totalLines && allWords) stepsDone = 3;
     if (stepsDone === 3 && state.openFlags === 0) stepsDone = 4;
   }
   if (state.published) stepsDone = 5;

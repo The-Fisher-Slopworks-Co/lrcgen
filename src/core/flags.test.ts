@@ -1,12 +1,8 @@
 import { test, expect, describe } from "bun:test";
-import { createDocument } from "./lrc-document";
-import type { LrcDocument, LrcLine } from "./lrc-document";
-import { findFlags } from "./flags";
+import type { LrcLine } from "./lrc-lines";
+import { findFlags, flagTime } from "./flags";
+import { docOf, doc, group } from "./testing";
 import { voiceOnsetAfter as onsetIn } from "./voice-activity";
-
-function docOf(...lines: LrcLine[]): LrcDocument {
-  return { ...createDocument(), lines };
-}
 
 const shineLine: LrcLine = {
   timestamp: 48600,
@@ -119,15 +115,27 @@ describe("findFlags", () => {
       expect(findFlags(doc(1301), { voiceOnsetAfter: onset }).map((f) => f.suggestMs)).toEqual([1300]);
     });
 
-    test("checks the line start of lines without word timings, but not empty lines", () => {
-      const doc = docOf({ timestamp: 49100, text: "Hello" }, { timestamp: 50100, text: "" });
+    test("checks the line start of lines without word timings", () => {
+      const doc = docOf({ timestamp: 49100, text: "Hello there" }, { timestamp: 51000, text: "Next" });
       expect(findFlags(doc, { voiceOnsetAfter })).toEqual([{
-        id: "starts-in-silence:0:Hello",
+        id: "starts-in-silence:0:Hello there",
         kind: "starts-in-silence",
         lineIndex: 0,
         message: "The line starts 200 ms before the voice does. The tap may have been early.",
         suggestMs: 49300,
       }]);
     });
+  });
+
+  test("labelled groups may overlap the lines: only their words are checked", () => {
+    const d = doc(group("one two three", [1000, 1500, 2000]), group("ooh", [1200], [], ["backing"]), group("next", [3000]));
+    expect(findFlags(d)).toEqual([]);
+  });
+
+  test("flagTime: the word's start, else the group's", () => {
+    const d = docOf(shineLine);
+    const [flag] = findFlags(d);
+    expect(flagTime(d, flag!)).toBe(49120);
+    expect(flagTime(d, { ...flag!, wordIndex: undefined })).toBe(48600);
   });
 });

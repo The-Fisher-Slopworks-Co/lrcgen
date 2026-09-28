@@ -1,32 +1,34 @@
-// What the karaoke stage shows at a moment: which lines (previous / current / next, or the title card
-// before the first line) and how far each word of the current line has filled.
+// What the karaoke stage shows at a moment: which lines (previous / current / next, or the title card before the
+// first line), the backing vocals and ad-libs sounding over the current line, and how far each word has filled.
 
-import { hasWordTimings, wordsOf, type LrcDocument, type LrcLine } from "../../../core/lrc-document";
+import { groupStart, hasWordTimings, isLabelled, type Group, type LyricsDoc } from "../../../core/lyrics";
 import { lineIndexAt, wordFill } from "../../../core/playback-position";
+import { lineSpan } from "../../lib/timing";
 
 export type LinesOnScreen = 1 | 2 | 3;
 export type Highlight = "word" | "line";
 
 export interface StageLine {
   role: "prev" | "current" | "next";
-  /** Line index; null for the title card shown before the first line; -1 for an empty slot. */
+  /** Group index; null for the title card shown before the first line; -1 for an empty slot. */
   index: number | null;
 }
 
-const sung = (line: LrcLine | undefined) => !!line && line.text.trim() !== "";
+/** A line of the song: an unlabelled group with words. Labelled groups show under the current line instead. */
+const isLine = (group: Group | undefined) => !!group && group.words.length > 0 && !isLabelled(group);
 
-function neighbour(doc: LrcDocument, from: number, dir: 1 | -1): number | null {
-  for (let i = from + dir; i >= 0 && i < doc.lines.length; i += dir) if (sung(doc.lines[i])) return i;
+function neighbour(doc: LyricsDoc, from: number, dir: 1 | -1): number | null {
+  for (let i = from + dir; i >= 0 && i < doc.groups.length; i += dir) if (isLine(doc.groups[i])) return i;
   return null;
 }
 
-/** The line on stage at `ms`: the last timed line started, or -1 before the first. */
-export function currentLineAt(doc: LrcDocument, ms: number): number {
+/** The line on stage at `ms`: the last line started, or -1 before the first. */
+export function currentLineAt(doc: LyricsDoc, ms: number): number {
   return lineIndexAt(doc, ms);
 }
 
 /** The lines to show for `current` (from `currentLineAt`) with `count` lines on screen. */
-export function stageLines(doc: LrcDocument, current: number, count: LinesOnScreen): StageLine[] {
+export function stageLines(doc: LyricsDoc, current: number, count: LinesOnScreen): StageLine[] {
   const cur: StageLine = { role: "current", index: current >= 0 ? current : null };
   const nextIndex = neighbour(doc, current, 1);
   const next: StageLine | null = nextIndex !== null ? { role: "next", index: nextIndex } : null;
@@ -39,18 +41,29 @@ export function stageLines(doc: LrcDocument, current: number, count: LinesOnScre
   return out;
 }
 
+/** The labelled groups (backing vocals, ad-libs) sounding at `ms`, in document order. */
+export function overlaysAt(doc: LyricsDoc, ms: number, durationMs: number): number[] {
+  const out: number[] = [];
+  doc.groups.forEach((g, i) => {
+    if (!isLabelled(g) || g.words.length === 0) return;
+    const span = lineSpan(doc, i, durationMs);
+    if (span && ms >= span.from && ms < span.to) out.push(i);
+  });
+  return out;
+}
+
 /**
- * How far each word of `line` has filled at `ms`, 0–1. "line" highlight, or a line without word timings,
- * fills the whole line at once when it starts. `lineEndMs` is where the last word ends when the line has no
- * end of its own (the next line's start).
+ * How far each word of `group` has filled at `ms`, 0–1. "line" highlight, or a group without word timings, fills
+ * the whole line at once when it starts. `lineEndMs` is where the last word ends when nothing else says (the next
+ * line's start).
  */
-export function wordFills(line: LrcLine, ms: number, highlight: Highlight, lineEndMs: number | null): number[] {
-  const words = wordsOf(line);
-  if (highlight === "line" || !hasWordTimings(line)) {
-    const on = line.timestamp !== null && ms >= line.timestamp ? 1 : 0;
-    return words.map(() => on);
+export function wordFills(group: Group, ms: number, highlight: Highlight, lineEndMs: number | null): number[] {
+  if (highlight === "line" || !hasWordTimings(group)) {
+    const start = groupStart(group);
+    const on = start !== null && ms >= start ? 1 : 0;
+    return group.words.map(() => on);
   }
-  return words.map((_, i) => wordFill(line, i, ms, lineEndMs));
+  return group.words.map((_, i) => wordFill(group, i, ms, lineEndMs));
 }
 
 /** The board's fill: sung colour up to `fill`, the rest in `rest`; clipped to the text. */
@@ -59,7 +72,7 @@ export function fillBackground(fill: number, sungColor: string, restColor: strin
   return `linear-gradient(90deg, ${sungColor} 0%, ${sungColor} ${pct}%, ${restColor} ${pct}%, ${restColor} 100%)`;
 }
 
-/** Where ↑/↓ last landed: the line index and the time it was sent to. */
+/** Where ↑/↓ last landed: the group index and the time it was sent to. */
 export interface JumpCursor {
   index: number;
   at: number;
@@ -70,17 +83,18 @@ export interface JumpCursor {
  * long as the stage still shows what it showed then. Lines out of order would otherwise trap ↑: jumping to
  * line 4 (17.80) puts line 5 (16.94) on stage, and ↑ from line 5 is line 4 again.
  */
-export function jumpBase(doc: LrcDocument, ms: number, cursor: JumpCursor | null): number {
+export function jumpBase(doc: LyricsDoc, ms: number, cursor: JumpCursor | null): number {
   const onStage = currentLineAt(doc, ms);
-  if (!cursor || doc.lines[cursor.index]?.timestamp !== cursor.at) return onStage;
+  const group = cursor ? doc.groups[cursor.index] : undefined;
+  if (!cursor || !group || groupStart(group) !== cursor.at) return onStage;
   return onStage === currentLineAt(doc, cursor.at) ? cursor.index : onStage;
 }
 
-/** The previous / next timed line by index from `current` (↑ / ↓), skipping untimed and empty lines; or null. */
-export function jumpTarget(doc: LrcDocument, current: number, dir: 1 | -1): number | null {
-  for (let i = current + dir; i >= 0 && i < doc.lines.length; i += dir) {
-    const line = doc.lines[i]!;
-    if (line.timestamp !== null && sung(line)) return i;
+/** The previous / next timed line by index from `current` (↑ / ↓), skipping untimed lines and labelled groups; or null. */
+export function jumpTarget(doc: LyricsDoc, current: number, dir: 1 | -1): number | null {
+  for (let i = current + dir; i >= 0 && i < doc.groups.length; i += dir) {
+    const group = doc.groups[i]!;
+    if (isLine(group) && groupStart(group) !== null) return i;
   }
   return null;
 }

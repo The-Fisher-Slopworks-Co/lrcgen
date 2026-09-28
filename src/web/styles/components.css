@@ -225,6 +225,32 @@ button.chip:hover {
   filter: brightness(1.15);
 }
 
+/* A group label ("backing", "adlib"); --c is its hue from lib/labels. */
+.label-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+  background: color-mix(in srgb, var(--c) 13%, transparent);
+  color: var(--c);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.label-chip.sm {
+  height: 16px;
+  padding: 0 6px;
+  font-size: 10.5px;
+}
+
 /* ---------------------------------------------------------------- Header */
 
 .app-header {

@@ -1,5 +1,4 @@
-import type { LrcDocument } from "./lrc-document";
-import { hasWordTimings, withTimestamp } from "./lrc-document";
+import { groupStart, groupText, hasWordTimings, withStart, withUniqueIds, type LyricsDoc } from "./lyrics";
 
 // Word timings go to a companion file so the plain .lrc stays readable by every player.
 const ENHANCED_SUFFIX = ".enhanced.lrc";
@@ -29,20 +28,21 @@ export function plainLrcPath(filePath: string): string {
 }
 
 /**
- * Copies word timings from `enhanced` onto the lines of `base` with the same text, matched in order.
+ * Copies word timings from `enhanced` onto the groups of `base` with the same text, matched in order.
  * `base` wins everywhere else: edited lines lose their word timings, re-timed lines drag them along.
  */
-export function mergeWordTimings(base: LrcDocument, enhanced: LrcDocument): LrcDocument {
+export function mergeWordTimings(base: LyricsDoc, enhanced: LyricsDoc): LyricsDoc {
   let next = 0;
-  const lines = base.lines.map((line) => {
-    for (let j = next; j < enhanced.lines.length; j++) {
-      const candidate = enhanced.lines[j]!;
-      if (candidate.text.trim() !== line.text.trim()) continue;
+  const groups = base.groups.map((group) => {
+    for (let j = next; j < enhanced.groups.length; j++) {
+      const candidate = enhanced.groups[j]!;
+      if (groupText(candidate) !== groupText(group)) continue;
       next = j + 1;
-      if (!hasWordTimings(candidate)) return line;
-      return { ...withTimestamp(candidate, line.timestamp), text: line.text };
+      if (!hasWordTimings(candidate)) return group;
+      const start = groupStart(group);
+      return { ...group, words: (start === null ? candidate : withStart(candidate, start)).words };
     }
-    return line;
+    return group;
   });
-  return { ...base, lines };
+  return { ...base, groups: withUniqueIds(groups) };
 }

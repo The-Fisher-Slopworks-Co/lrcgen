@@ -1,9 +1,9 @@
 // Everything that changes the store, apart from opening/closing songs (./session) and jobs (./jobs).
 // Document edits go through `commit(doc, label)` so they land in undo history and get autosaved:
-//   commit(setTimestamp(doc, i, player.tapPosition()), "tap");
+//   commit(setGroupStart(doc, i, player.tapPosition()), "tap");
 //   if (undoLabel() === "tap") undo();   // Backspace on Lines/Words
 
-import type { LrcDocument } from "../../core/lrc-document";
+import type { LyricsDoc } from "../../core/lyrics";
 import type { Draft, WebSettings } from "../../shared/api";
 import * as api from "../api/client";
 import { errorMessage } from "../api/client";
@@ -44,13 +44,13 @@ export function patchSongIf(draftId: string, update: Partial<SongState> | ((song
   if (appStore.get().song?.draft.id === draftId) patchSong(update);
 }
 
-function clampSelection(sel: Selection, doc: LrcDocument): Selection {
-  const lines = doc.lines.length;
+function clampSelection(sel: Selection, doc: LyricsDoc): Selection {
+  const lines = doc.groups.length;
   const line = lines === 0 ? 0 : Math.min(Math.max(0, sel.line), lines - 1);
   return line === sel.line ? sel : { line, word: null };
 }
 
-function setHistory(history: H.History<LrcDocument>): void {
+function setHistory(history: H.History<LyricsDoc>): void {
   patchSong(
     (s) => ({
       history,
@@ -64,7 +64,7 @@ function setHistory(history: H.History<LrcDocument>): void {
 // ---------------------------------------------------------------- document
 
 /** The open song's document (or null). */
-export function currentDoc(): LrcDocument | null {
+export function currentDoc(): LyricsDoc | null {
   return appStore.get().song?.history.present.value ?? null;
 }
 
@@ -72,14 +72,14 @@ export function currentDoc(): LrcDocument | null {
  * Makes `doc` the current document as one undo step labelled `label` ("tap", "nudge", "edit text"…).
  * `coalesceMs` merges it into the previous step when that has the same label and is recent (held keys).
  */
-export function commit(doc: LrcDocument, label: string, options: { coalesceMs?: number } = {}): void {
+export function commit(doc: LyricsDoc, label: string, options: { coalesceMs?: number } = {}): void {
   const song = currentSong();
   if (!song) return;
   setHistory(H.commit(song.history, doc, label, options));
 }
 
 /** `commit(fn(currentDoc), label)`. */
-export function updateDoc(fn: (doc: LrcDocument) => LrcDocument, label: string, options: { coalesceMs?: number } = {}): void {
+export function updateDoc(fn: (doc: LyricsDoc) => LyricsDoc, label: string, options: { coalesceMs?: number } = {}): void {
   const doc = currentDoc();
   if (doc) commit(fn(doc), label, options);
 }

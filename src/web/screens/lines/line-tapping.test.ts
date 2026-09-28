@@ -1,19 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import type { LrcDocument, LrcLine } from "../../../core/lrc-document";
+import { groupsFromLrcLines, type LrcLine } from "../../../core/lrc-lines";
+import { groupStart, type Group, type LyricsDoc } from "../../../core/lyrics";
+import { doc as build } from "../../../core/testing";
 import { changedLine, firstUntimedLine, keepInView, lineAt, lineCounts, nudgeLine, pausedStart, tapLine } from "./line-tapping";
 
-function doc(lines: LrcLine[]): LrcDocument {
-  return { metadata: { tool: "t" }, lines };
+// Lines written the LRC way; an empty one is an empty group, so indices stay put.
+const toGroup = (l: LrcLine): Group => (l.text.trim() === "" ? { id: "", labels: [], words: [] } : groupsFromLrcLines([l])[0]!);
+function doc(lines: LrcLine[]): LyricsDoc {
+  return build(...lines.map(toGroup));
 }
+const startAt = (d: LyricsDoc, i: number) => groupStart(d.groups[i]!);
 const line = (timestamp: number | null, text = "la la"): LrcLine => ({ timestamp, text });
 
 describe("tapLine", () => {
   test("times the line and moves on to the next", () => {
     const d = doc([line(1000), line(null), line(null)]);
     const r = tapLine(d, 1, 2345.6);
-    expect(r.doc.lines[1]!.timestamp).toBe(2346);
+    expect(startAt(r.doc, 1)).toBe(2346);
     expect(r.next).toBe(2);
-    expect(r.doc.lines[0]).toBe(d.lines[0]!);
+    expect(r.doc.groups[0]).toBe(d.groups[0]!);
   });
 
   test("has no next line after the last one", () => {
@@ -21,21 +26,21 @@ describe("tapLine", () => {
   });
 
   test("keeps a tap that lands before the line above (the flag points it out)", () => {
-    expect(tapLine(doc([line(5000), line(null)]), 1, 4000).doc.lines[1]!.timestamp).toBe(4000);
+    expect(startAt(tapLine(doc([line(5000), line(null)]), 1, 4000).doc, 1)).toBe(4000);
   });
 
   test("re-timing a line with words moves the words along", () => {
     const d = doc([{ timestamp: 1000, text: "a b", words: [{ start: 1000, text: "a " }, { start: 1500, text: "b" }], end: 2000 }]);
-    const moved = tapLine(d, 0, 1200).doc.lines[0]!;
-    expect(moved.words!.map((w) => w.start)).toEqual([1200, 1700]);
-    expect(moved.end).toBe(2200);
+    const moved = tapLine(d, 0, 1200).doc.groups[0]!;
+    expect(moved.words.map((w) => w.start)).toEqual([1200, 1700]);
+    expect(moved.words.map((w) => w.end)).toEqual([null, 2200]);
   });
 });
 
 describe("nudgeLine", () => {
   test("moves a timed line and never below zero", () => {
-    expect(nudgeLine(doc([line(1000)]), 0, 10)!.lines[0]!.timestamp).toBe(1010);
-    expect(nudgeLine(doc([line(50)]), 0, -100)!.lines[0]!.timestamp).toBe(0);
+    expect(startAt(nudgeLine(doc([line(1000)]), 0, 10)!, 0)).toBe(1010);
+    expect(startAt(nudgeLine(doc([line(50)]), 0, -100)!, 0)).toBe(0);
   });
 
   test("does nothing to an untimed line or at zero", () => {
@@ -47,14 +52,14 @@ describe("nudgeLine", () => {
 describe("changedLine", () => {
   test("finds the line an undo put back", () => {
     const before = doc([line(1), line(2), line(3)]);
-    const after = { ...before, lines: before.lines.map((l, i) => (i === 1 ? line(null) : l)) };
+    const after = { ...before, groups: before.groups.map((g, i) => (i === 1 ? toGroup(line(null)) : g)) };
     expect(changedLine(before, after)).toBe(1);
     expect(changedLine(before, before)).toBe(-1);
   });
 
   test("notices an added line at the end", () => {
     const before = doc([line(1)]);
-    expect(changedLine(before, { ...before, lines: [...before.lines, line(null)] })).toBe(1);
+    expect(changedLine(before, { ...before, groups: [...before.groups, toGroup(line(null))] })).toBe(1);
   });
 });
 
@@ -82,7 +87,7 @@ describe("lineAt", () => {
   });
 });
 
-test("lineCounts leaves out empty lines", () => {
+test("lineCounts counts groups with words", () => {
   expect(lineCounts(doc([line(1), line(null), line(null, "  "), line(4, "")]))).toEqual({ timed: 1, total: 2 });
 });
 

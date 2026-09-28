@@ -84,6 +84,30 @@
   color: var(--warn);
 }
 
+/* The lyrics file, written on every save: laid out like a checked radio card. */
+.save-lyrics-file {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-2);
+  background: var(--raised-1);
+  font-size: 14px;
+  color: var(--text-1);
+}
+.save-lyrics-file > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--accent);
+}
+.save-lyrics-file .text {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .save-formats {
   margin: 0;
   padding: 0;

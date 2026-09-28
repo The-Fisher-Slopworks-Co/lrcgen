@@ -18,21 +18,21 @@ describe("parseProtocolLine", () => {
     });
   });
 
-  test("parses result lines with timed and untimed lines", () => {
-    const raw = '{"type":"result","lines":[{"timestamp":1690,"text":"Hello"},{"timestamp":null,"text":"World"}],"rawLyrics":"Hello\\nWorld"}';
-    expect(parseProtocolLine(raw)).toEqual({
-      type: "result",
-      lines: [
-        { timestamp: 1690, text: "Hello" },
-        { timestamp: null, text: "World" },
-      ],
-      rawLyrics: "Hello\nWorld",
-    });
+  test("parses result lines into groups with word starts; ends, even if sent, are left out", () => {
+    const raw =
+      '{"type":"result","lines":[{"timestamp":1690,"text":"Hello you","words":[{"start":1690,"end":1900,"text":"Hello "},{"start":2000,"text":"you"}],"end":2400},{"timestamp":null,"text":"World"}],"rawLyrics":"Hello\\nWorld"}';
+    const parsed = parseProtocolLine(raw);
+    if (parsed?.type !== "result") throw new Error("not a result");
+    expect(parsed.rawLyrics).toBe("Hello\nWorld");
+    expect(parsed.groups.map((g) => g.words.map((w) => [w.text, w.start, w.end]))).toEqual([
+      [["Hello", 1690, null], ["you", 2000, null]],
+      [["World", null, null]],
+    ]);
   });
 
   test("defaults rawLyrics to empty string when missing", () => {
     const parsed = parseProtocolLine('{"type":"result","lines":[]}');
-    expect(parsed).toEqual({ type: "result", lines: [], rawLyrics: "" });
+    expect(parsed).toEqual({ type: "result", groups: [], rawLyrics: "" });
   });
 
   test("rejects garbage and non-protocol lines", () => {
@@ -54,7 +54,7 @@ describe("validateLrcLines", () => {
   });
 
   test("accepts joined words", () => {
-    const lines = [{ timestamp: 1000, text: "And all through", words: [{ start: 1000, text: "And all " }, { start: 1600, text: "through" }], end: 2000 }];
+    const lines = [{ timestamp: 1000, text: "And all through", words: [{ start: 1000, text: "And all " }, { start: 1600, text: "through" }] }];
     expect(validateLrcLines(lines)).toEqual(lines);
   });
 
@@ -70,10 +70,10 @@ describe("validateLrcLines", () => {
     expect(validateLrcLines([{ timestamp: 5, text: "x", extra: true }])).toEqual([{ timestamp: 5, text: "x" }]);
   });
 
-  test("accepts word timings and the line end", () => {
-    const words = [{ start: 5, text: "Hi " }, { start: 9, text: "there" }];
+  test("takes word starts and leaves word and line ends out", () => {
+    const words = [{ start: 5, end: 8, text: "Hi " }, { start: 9, end: "soon", text: "there" }];
     expect(validateLrcLines([{ timestamp: 5, text: "Hi there", words, end: 12 }])).toEqual([
-      { timestamp: 5, text: "Hi there", words, end: 12 },
+      { timestamp: 5, text: "Hi there", words: [{ start: 5, text: "Hi " }, { start: 9, text: "there" }] },
     ]);
   });
 

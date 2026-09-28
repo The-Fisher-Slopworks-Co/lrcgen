@@ -1,6 +1,6 @@
 import type { LyricsPublisher, PublishResult } from "../../ports/lyrics-publisher";
-import type { LrcDocument } from "../../core/lrc-document";
-import { msToLrc } from "../../core/time-utils";
+import type { LyricsDoc } from "../../core/lyrics";
+import { exportLines, formatPlainLine, lineText } from "../../core/lrc-export";
 import { solveChallenge } from "./lrclib-pow";
 import { LRCLIB_BASE_URL, LRCLIB_USER_AGENT, LrclibUnreachableError, defaultFetch, lrclibFetch, type FetchLike } from "../lrclib-common";
 
@@ -13,12 +13,11 @@ interface PublishBody {
   syncedLyrics: string;
 }
 
-export function buildPublishBody(doc: LrcDocument, audioLengthMs: number): PublishBody {
-  const syncedLines = doc.lines
-    .filter((l) => l.timestamp !== null)
-    .map((l) => `[${msToLrc(l.timestamp!)}] ${l.text.trim()}`);
-  const syncedLyrics = syncedLines.join("\n");
-  const plainLyrics = doc.lines.map((l) => l.text.trim()).join("\n");
+/** Lines as LRC export writes them: backing vocals and ad-libs in parentheses in the line they're sung with. */
+export function buildPublishBody(doc: LyricsDoc, audioLengthMs: number): PublishBody {
+  const lines = exportLines(doc);
+  const syncedLyrics = lines.filter((l) => l.start !== null).map(formatPlainLine).join("\n");
+  const plainLyrics = lines.map(lineText).join("\n");
 
   return {
     trackName: doc.metadata.title ?? "",
@@ -35,7 +34,7 @@ export class LrclibPublisher implements LyricsPublisher {
 
   constructor(private fetchFn: FetchLike = defaultFetch) {}
 
-  async publish(doc: LrcDocument, audioLengthMs: number): Promise<PublishResult> {
+  async publish(doc: LyricsDoc, audioLengthMs: number): Promise<PublishResult> {
     try {
       // Step 1: Request challenge
       const challengeRes = await lrclibFetch(this.fetchFn, `${LRCLIB_BASE_URL}/request-challenge`, {

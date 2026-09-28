@@ -1,8 +1,9 @@
-// Save & publish (Save board): write the .lrc next to the track, or publish to LRCLIB. Mounted by the dialog
-// host while "save" is open; Ctrl+S inside it saves. `openSaveDialog("publish")` opens it at the publish part.
+// Save & publish (Save board): write the lyrics file ("Song.lyrics.json") and, if wanted, LRC for players next to
+// the track, or publish to LRCLIB. Mounted by the dialog host while "save" is open; Ctrl+S inside it saves.
+// `openSaveDialog("publish")` opens it at the publish part.
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { hasAnyWordTimings } from "../../../core/lrc-document";
+import { hasAnyWordTimings } from "../../../core/lyrics";
 import type { SaveCheck, SaveFormat } from "../../../shared/api";
 import * as api from "../../api/client";
 import { errorMessage } from "../../api/client";
@@ -15,7 +16,20 @@ import { relativeDay } from "../../lib/format";
 import { closeDialog, currentDoc, goToStep, refreshDraftMeta, toast, updateDraft, useApp, useDoc, useDraft, useTrack } from "../../state";
 import { reviewFlag } from "../refine/review";
 import { takeSaveFocus } from "./open-save";
-import { backupNames, baseName, fileSuffixes, flagSummary, joinedNote, joinedOnSave, listNames, parseLrcPath, publishChecklist, savedMessage, splitPath } from "./save-model";
+import {
+  backupNames,
+  baseName,
+  fileSuffixes,
+  flagSummary,
+  joinedNote,
+  joinedOnSave,
+  listNames,
+  parseLrcPath,
+  publishChecklist,
+  replacedFiles,
+  savedMessage,
+  splitPath,
+} from "./save-model";
 import "./save.css";
 
 export function SaveDialog() {
@@ -81,9 +95,10 @@ export function SaveDialog() {
   const joined = joinedNote(joinedOnSave(doc));
   const { dir, name } = splitPath(path, homeDir);
   const targets = (f: SaveFormat) => check?.targets.find((t) => t.format === f)?.paths.map(baseName) ?? [];
-  const existing = check?.existing ?? [];
-  const backups = backupNames(existing);
-  const companionGoes = format === "lines" && existing.some((p) => p !== path);
+  const lyricsName = check ? baseName(check.lyricsPath) : "";
+  const { replaced, kept } = replacedFiles(check?.existing ?? [], check?.lyricsPath ?? "", format);
+  const backups = backupNames(replaced);
+  const companionGoes = format === "lines" && replaced.some((p) => p !== path && p !== check?.lyricsPath);
 
   const onEditKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
@@ -155,13 +170,30 @@ export function SaveDialog() {
                 </Button>
               </div>
               <span className={editError ? "save-hint error" : "save-hint"}>
-                {editError ?? "A plain .lrc file; with word timings, the .enhanced.lrc goes next to it."}
+                {editError ?? "A plain .lrc file; the lyrics file and, with word timings, the .enhanced.lrc go next to it."}
               </span>
             </div>
           )}
 
+          <div className="save-lyrics-file">
+            <Icon.Check size={18} />
+            <span className="text">
+              <span className="save-card-label">
+                lrcgen lyrics
+                {lyricsName && (
+                  <span className="save-writes" title={`Writes ${lyricsName}`}>
+                    .lyrics.json
+                  </span>
+                )}
+              </span>
+              <span className="save-card-note">
+                Always saved: when every word starts (and ends, where that's set), the groups and their labels. lrcgen opens it as it is, and so can your own tools.
+              </span>
+            </span>
+          </div>
+
           <fieldset className="save-formats">
-            <legend className="eyebrow">Format</legend>
+            <legend className="eyebrow">LRC for players</legend>
             <RadioCard
               name="save-format"
               checked={format === "enhanced"}
@@ -169,7 +201,7 @@ export function SaveDialog() {
               label={<Writes label="LRC with word timings" names={targets("enhanced")} />}
               description={
                 <>
-                  Enhanced LRC — for karaoke players and lyric-video tools.
+                  Enhanced LRC — for karaoke players and lyric-video tools. Backing vocals and ad-libs go into their line in parentheses.
                   {joined && <span className="save-card-note">{joined}</span>}
                 </>
               }
@@ -180,6 +212,13 @@ export function SaveDialog() {
               onChange={() => setFormat("lines")}
               label={<Writes label="LRC, lines only" names={targets("lines")} />}
               description="For players that don't read word timings."
+            />
+            <RadioCard
+              name="save-format"
+              checked={format === "none"}
+              onChange={() => setFormat("none")}
+              label="No LRC"
+              description="Only the lyrics file."
             />
           </fieldset>
 
@@ -194,7 +233,15 @@ export function SaveDialog() {
                     <span className="mono-name">{b}</span>
                   </span>
                 ))}
-                .{companionGoes && <> Lines only removes {baseName(existing.find((p) => p !== path)!)}, since it would no longer match.</>}
+                .{companionGoes && <> Lines only removes {baseName(replaced.find((p) => p !== path && p !== check?.lyricsPath)!)}, since it would no longer match.</>}
+              </span>
+            </p>
+          )}
+          {kept.length > 0 && (
+            <p className="save-note">
+              <Icon.Info size={16} />
+              <span>
+                {listNames(kept.map(baseName))} {kept.length === 1 ? "stays" : "stay"} as {kept.length === 1 ? "it is" : "they are"} and won't match these lyrics.
               </span>
             </p>
           )}

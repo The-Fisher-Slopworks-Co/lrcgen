@@ -1,147 +1,159 @@
 // Word tapping on the Words step (WordSyncEngine semantics on top of the store's undo history): the selected
-// word of the selected line is the tap target; a tap times it and moves on to the next word, then the next line.
+// word of the selected group is the tap target; a tap times it and moves on to the next word, then the next group.
 
-import { hasWordTimings, lineEnd, setWordStart, wordsComplete, wordsOf, type LrcDocument, type LrcLine } from "../../../core/lrc-document";
-import { wordParts } from "../../../core/word-edit";
+import { groupEnd, groupStart, hasWordTimings, isSung, lastStart, setWordStart, wordParts, wordsComplete, type Group, type LyricsDoc } from "../../../core/lyrics";
 import type { Range } from "../../audio/song-player";
 import { lineSpan, timedLineFrom } from "../../lib/timing";
 
 export const PRE_ROLL_MS = 2000;
+/** A word without an end plays to the next word's start, but at most this long. */
+export const WORD_PLAY_MS = 1500;
 
 export interface Spot {
   line: number;
   word: number;
 }
 
-const hasWords = (line: LrcLine | undefined) => !!line && wordsOf(line).length > 0;
+const hasWords = (group: Group | undefined) => !!group && group.words.length > 0;
 
-/** The first word still without a start, leaving out punctuation-only words ("— "), which needn't be tapped; -1 if none. */
-export function firstUntimedWord(line: LrcLine): number {
-  return wordsOf(line).findIndex((w) => w.start === null && /[\p{L}\p{N}]/u.test(w.text));
+/** The first word still without a start, leaving out punctuation-only words ("—"), which needn't be tapped; -1 if none. */
+export function firstUntimedWord(group: Group): number {
+  return group.words.findIndex((w) => w.start === null && isSung(w));
 }
 
-/** Some words are tapped, but not all of them (e.g. after a split): the line still counts as to do. */
-export function partlyTimed(line: LrcLine): boolean {
-  return hasWordTimings(line) && !wordsComplete(line);
+/**
+ * Where tapping a group begins: its first word while only the line start is known (the Lines step timed that
+ * word, and the Words step times it again, slowed down), else its first word still without a start.
+ */
+export function firstTapWord(group: Group): number {
+  const onlyLineStart = !group.words.slice(1).some((w) => w.start !== null);
+  return onlyLineStart ? 0 : Math.max(0, firstUntimedWord(group));
 }
 
-/** The nearest line from `index` in direction `dir` (including `index`) that has words, or -1. */
-export function lineWithWords(doc: LrcDocument, index: number, dir: 1 | -1): number {
-  for (let i = index; i >= 0 && i < doc.lines.length; i += dir) if (hasWords(doc.lines[i])) return i;
+/** Some words are tapped, but not all of them (e.g. after a split): the group still counts as to do. */
+export function partlyTimed(group: Group): boolean {
+  return hasWordTimings(group) && !wordsComplete(group);
+}
+
+/** The nearest group from `index` in direction `dir` (including `index`) that has words, or -1. */
+export function lineWithWords(doc: LyricsDoc, index: number, dir: 1 | -1): number {
+  for (let i = index; i >= 0 && i < doc.groups.length; i += dir) if (hasWords(doc.groups[i])) return i;
   return -1;
 }
 
 /**
- * Where tapping starts on arrival. A word picked on purpose (Refine, a chip) is kept; otherwise the first line whose
- * words aren't all timed, at its first untimed word; otherwise (all done) the selected line (or the nearest with words).
+ * Where tapping starts on arrival. A word picked on purpose (Refine, a chip) is kept; otherwise the first group whose
+ * words aren't all timed, at its first word to tap; otherwise (all done) the selected group (or the nearest with words).
  */
-export function arrivalSpot(doc: LrcDocument, sel: { line: number; word: number | null }): Spot | null {
-  const selLine = doc.lines[sel.line];
-  if (sel.word !== null && selLine && sel.word >= 0 && sel.word < wordsOf(selLine).length) return { line: sel.line, word: sel.word };
-  for (let i = 0; i < doc.lines.length; i++) {
-    const line = doc.lines[i]!;
-    if (hasWords(line) && !wordsComplete(line)) return { line: i, word: Math.max(0, firstUntimedWord(line)) };
+export function arrivalSpot(doc: LyricsDoc, sel: { line: number; word: number | null }): Spot | null {
+  const selGroup = doc.groups[sel.line];
+  if (sel.word !== null && selGroup && sel.word >= 0 && sel.word < selGroup.words.length) return { line: sel.line, word: sel.word };
+  for (let i = 0; i < doc.groups.length; i++) {
+    const group = doc.groups[i]!;
+    if (hasWords(group) && !wordsComplete(group)) return { line: i, word: firstTapWord(group) };
   }
   const line = lineWithWords(doc, sel.line, 1) >= 0 ? lineWithWords(doc, sel.line, 1) : lineWithWords(doc, sel.line, -1);
   return line >= 0 ? { line, word: 0 } : null;
 }
 
-/** The word after `spot`: the next word of the line, else the first word of the next line with words; null at the end. */
-export function nextSpot(doc: LrcDocument, spot: Spot): Spot | null {
-  const line = doc.lines[spot.line];
-  if (line && spot.word + 1 < wordsOf(line).length) return { line: spot.line, word: spot.word + 1 };
+/** The word after `spot`: the next word of the group, else the first word of the next group with words; null at the end. */
+export function nextSpot(doc: LyricsDoc, spot: Spot): Spot | null {
+  const group = doc.groups[spot.line];
+  if (group && spot.word + 1 < group.words.length) return { line: spot.line, word: spot.word + 1 };
   const next = lineWithWords(doc, spot.line + 1, 1);
   return next >= 0 ? { line: next, word: 0 } : null;
 }
 
-/** The word before `spot`, across lines; null at the start. */
-export function prevSpot(doc: LrcDocument, spot: Spot): Spot | null {
+/** The word before `spot`, across groups; null at the start. */
+export function prevSpot(doc: LyricsDoc, spot: Spot): Spot | null {
   if (spot.word > 0) return { line: spot.line, word: spot.word - 1 };
   const prev = lineWithWords(doc, spot.line - 1, -1);
-  return prev >= 0 ? { line: prev, word: wordsOf(doc.lines[prev]!).length - 1 } : null;
+  return prev >= 0 ? { line: prev, word: doc.groups[prev]!.words.length - 1 } : null;
 }
 
-/** The spot on the next/previous line with words: its first untimed word, else its first word. */
-export function lineSpot(doc: LrcDocument, from: number, dir: 1 | -1): Spot | null {
+/** The spot on the next/previous group with words, at its first word to tap. */
+export function lineSpot(doc: LyricsDoc, from: number, dir: 1 | -1): Spot | null {
   const line = lineWithWords(doc, from + dir, dir);
   if (line < 0) return null;
-  return { line, word: Math.max(0, firstUntimedWord(doc.lines[line]!)) };
+  return { line, word: firstTapWord(doc.groups[line]!) };
 }
 
 /** Times the word at `spot`; `next` is the word to tap after it (null after the song's last word). */
-export function tapWord(doc: LrcDocument, spot: Spot, ms: number): { doc: LrcDocument; next: Spot | null } {
+export function tapWord(doc: LyricsDoc, spot: Spot, ms: number): { doc: LyricsDoc; next: Spot | null } {
   const next = setWordStart(doc, spot.line, spot.word, Math.max(0, Math.round(ms)));
   return { doc: next, next: nextSpot(next, spot) };
 }
 
 /**
- * Where playback starts when tapping begins on a line from a pause: 2 s before the line. For a line without a
- * start, 2 s before the end of the line above it (its end tag or last word), or else that line's start.
+ * Where playback starts when tapping begins on a group from a pause: 2 s before it. For a group without a start,
+ * 2 s before the end of the timed group above it (or its last word's start), or else that group's start.
  */
-export function preRollStart(doc: LrcDocument, lineIndex: number): number {
-  const line = doc.lines[lineIndex];
-  if (line?.timestamp != null) return Math.max(0, line.timestamp - PRE_ROLL_MS);
+export function preRollStart(doc: LyricsDoc, lineIndex: number): number {
+  const group = doc.groups[lineIndex];
+  const start = group ? groupStart(group) : null;
+  if (start !== null) return Math.max(0, start - PRE_ROLL_MS);
   const prev = timedLineFrom(doc, lineIndex - 1, -1);
   if (prev < 0) return 0;
-  const prevLine = doc.lines[prev]!;
-  const lastWord = Math.max(...wordsOf(prevLine).map((w) => w.start ?? -1));
-  const end = lineEnd(prevLine) ?? (lastWord >= 0 ? lastWord : null);
-  return end === null ? prevLine.timestamp! : Math.max(0, end - PRE_ROLL_MS);
+  const prevGroup = doc.groups[prev]!;
+  // With only its start known, the group above plays from its start.
+  const end = groupEnd(prevGroup) ?? (hasWordTimings(prevGroup) ? lastStart(prevGroup) : null);
+  return end === null ? groupStart(prevGroup)! : Math.max(0, end - PRE_ROLL_MS);
 }
 
-/** The line and word an undo put back: the first line that differs, then the first word whose start differs. */
-export function changedSpot(before: LrcDocument, after: LrcDocument): Spot | null {
-  const n = Math.max(before.lines.length, after.lines.length);
+/** The group and word an undo put back: the first group that differs, then the first word whose start differs. */
+export function changedSpot(before: LyricsDoc, after: LyricsDoc): Spot | null {
+  const n = Math.max(before.groups.length, after.groups.length);
   for (let i = 0; i < n; i++) {
-    const a = before.lines[i];
-    const b = after.lines[i];
+    const a = before.groups[i];
+    const b = after.groups[i];
     if (a === b) continue;
     if (!a || !b) return { line: i, word: 0 };
-    const wa = wordsOf(a);
-    const wb = wordsOf(b);
-    const m = Math.max(wa.length, wb.length);
+    const m = Math.max(a.words.length, b.words.length);
     for (let j = 0; j < m; j++) {
-      if (wa[j]?.start !== wb[j]?.start || wa[j]?.text !== wb[j]?.text) return { line: i, word: Math.min(j, Math.max(0, wb.length - 1)) };
+      const wa = a.words[j];
+      const wb = b.words[j];
+      if (wa?.start !== wb?.start || wa?.text !== wb?.text) return { line: i, word: Math.min(j, Math.max(0, b.words.length - 1)) };
     }
     return { line: i, word: 0 };
   }
   return null;
 }
 
-/** What W plays: the word from its start to the next timed word (or the line's end, or the next line), at most 1.5 s. */
-export function wordSpan(doc: LrcDocument, spot: Spot, durationMs: number): Range | null {
-  const line = doc.lines[spot.line];
-  if (!line) return null;
-  const words = wordsOf(line);
-  const start = words[spot.word]?.start;
-  if (start == null) return null;
-  const after = words.slice(spot.word + 1).find((w) => w.start !== null && w.start > start)?.start;
-  const end = after ?? lineEnd(line) ?? lineSpan(doc, spot.line, durationMs)?.to ?? null;
-  const to = end !== null && end > start ? Math.min(end, start + 1500) : start + 800;
+/**
+ * What W plays: exactly the word, from its start to its end. Without an end, to the next timed word (or the group's
+ * end, or the next line), at most WORD_PLAY_MS.
+ */
+export function wordSpan(doc: LyricsDoc, spot: Spot, durationMs: number): Range | null {
+  const group = doc.groups[spot.line];
+  const word = group?.words[spot.word];
+  const start = word?.start;
+  if (!group || !word || start == null) return null;
+  if (word.end !== null && word.end > start) return { from: start, to: word.end };
+  const after = group.words.slice(spot.word + 1).find((w) => w.start !== null && w.start > start)?.start;
+  const end = after ?? groupEnd(group) ?? lineSpan(doc, spot.line, durationMs)?.to ?? null;
+  const to = end !== null && end > start ? Math.min(end, start + WORD_PLAY_MS) : start + 800;
   return { from: start, to: durationMs > 0 ? Math.min(to, durationMs) : to };
 }
 
-/** "Words done in 9 of 12 lines": lines with text, and those whose words are all timed (as the header counts them). */
-export function wordCounts(doc: LrcDocument): { done: number; total: number } {
-  const lines = doc.lines.filter((l) => l.text.trim() !== "");
-  return { done: lines.filter(wordsComplete).length, total: lines.length };
+/** "Words done in 9 of 12 lines": groups with words, and those whose words are all timed (as the header counts them). */
+export function wordCounts(doc: LyricsDoc): { done: number; total: number } {
+  const groups = doc.groups.filter(hasWords);
+  return { done: groups.filter(wordsComplete).length, total: groups.length };
 }
 
 const SHORT_WORD = 3;
 
 /**
- * Short words ("I'm", "to", "и", "на") in a line that has no joined words yet: often sung as one sound with the
+ * Short words ("I'm", "to", "и", "на") in a group that has no joined words yet: often sung as one sound with the
  * next word. The last word is left out, since there is nothing to join it with.
  */
-export function shortWords(line: LrcLine | undefined): string[] {
-  if (!line) return [];
-  const words = wordsOf(line);
-  if (words.some((w) => wordParts(w).length > 1)) return [];
+export function shortWords(group: Group | undefined): string[] {
+  if (!group) return [];
+  if (group.words.some((w) => wordParts(w).length > 1)) return [];
   const found: string[] = [];
-  for (const w of words.slice(0, -1)) {
-    const text = w.text.trim();
-    const letters = text.replace(/[^\p{L}\p{N}]/gu, "");
-    if (letters.length > 0 && letters.length <= SHORT_WORD && !found.includes(text)) found.push(text);
+  for (const w of group.words.slice(0, -1)) {
+    const letters = w.text.replace(/[^\p{L}\p{N}]/gu, "");
+    if (letters.length > 0 && letters.length <= SHORT_WORD && !found.includes(w.text)) found.push(w.text);
   }
   return found;
 }

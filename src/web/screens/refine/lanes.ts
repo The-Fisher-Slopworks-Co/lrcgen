@@ -1,6 +1,6 @@
-// Vertical layout of the Refine timeline: ruler, words lane, the ghost strip for untimed words, then the
-// optional vocals / spectrogram / mix lanes. The board's proportions at 512 px; extra height goes to the
-// vocals and spectrogram lanes.
+// Vertical layout of the Refine timeline: ruler, the group rows (lines, then labelled groups), the ghost strip for
+// the selected group's untimed words, then the optional vocals / spectrogram / mix lanes. Extra height goes to
+// the vocals and spectrogram lanes.
 
 export interface LaneToggles {
   vocals: boolean;
@@ -15,25 +15,27 @@ export interface Band {
 
 export interface LaneLayout {
   ruler: Band;
+  /** All the group rows together. */
   words: Band;
   ghost: Band | null;
   vocals: Band | null;
   spect: Band | null;
   mix: Band | null;
-  /** From the words lane's bottom to the last lane's bottom: where word-start lines are drawn. */
+  /** From the rows' bottom to the last lane's bottom: where word start/end lines are drawn. */
   audioTop: number;
   height: number;
 }
 
 export const RULER_H = 28;
-export const WORDS_H = 64;
+/** One row of groups: the label tag on top, the word blocks under it. */
+export const ROW_H = 54;
 export const GHOST_H = 26;
 export const MIX_H = 56;
 export const GAP = 6;
 const MIN_FLEX = 64;
 const VOCALS_SHARE = 180 / 340;
 
-export function laneLayout(height: number, toggles: LaneToggles, ghost: boolean): LaneLayout {
+export function laneLayout(height: number, toggles: LaneToggles, ghost: boolean, rows = 1): LaneLayout {
   let y = 0;
   const take = (h: number): Band => {
     const band = { y, h };
@@ -41,7 +43,7 @@ export function laneLayout(height: number, toggles: LaneToggles, ghost: boolean)
     return band;
   };
   const ruler = take(RULER_H);
-  const words = take(WORDS_H);
+  const words = take(ROW_H * Math.max(1, rows));
   const ghostBand = ghost ? take(GHOST_H) : null;
   const audioTop = words.y + words.h;
 

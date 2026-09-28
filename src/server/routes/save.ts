@@ -3,10 +3,10 @@ import path from "node:path";
 import type { SaveFormat } from "../../shared/api";
 import type { ServerContext } from "../context";
 import { badRequest, notFound, query, readJson, type RouteTable } from "../http";
-import { saveCheck, saveLrc } from "../save-lrc";
-import { lrcDocument, lrcTargetPath } from "../validate";
+import { saveCheck, saveLyrics } from "../save-lyrics";
+import { lrcTargetPath, lyricsDoc } from "../validate";
 
-const FORMATS: SaveFormat[] = ["enhanced", "lines"];
+const FORMATS: SaveFormat[] = ["enhanced", "lines", "none"];
 
 export function saveRoutes(ctx: ServerContext): RouteTable {
   return {
@@ -19,12 +19,12 @@ export function saveRoutes(ctx: ServerContext): RouteTable {
         const lrcPath = lrcTargetPath(body.path);
         if (!FORMATS.includes(body.format as SaveFormat)) throw badRequest(`"format" must be one of ${FORMATS.join(", ")}`);
         if (typeof body.draftId !== "string") throw badRequest(`Missing "draftId"`);
-        const doc = lrcDocument(body.doc);
+        const doc = lyricsDoc(body.doc);
         const dir = path.dirname(lrcPath);
         if (!(await stat(dir).catch(() => null))?.isDirectory()) throw notFound(`Folder not found: ${dir}`);
 
         const { lrcParser, enhancedLrcParser } = ctx.registry;
-        const result = await saveLrc(lrcPath, body.format as SaveFormat, doc, lrcParser, enhancedLrcParser);
+        const result = await saveLyrics(lrcPath, body.format as SaveFormat, doc, lrcParser, enhancedLrcParser);
         await ctx.drafts.mark(body.draftId, "savedAt");
         return Response.json(result);
       },

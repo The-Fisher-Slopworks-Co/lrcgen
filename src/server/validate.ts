@@ -1,31 +1,16 @@
-import type { LrcDocument } from "../core/lrc-document";
+import type { LyricsDoc } from "../core/lyrics";
 import type { Draft, Step, WebSettings } from "../shared/api";
 import { STEPS } from "../shared/api";
 import { isEnhancedLrcPath } from "../core/enhanced-lrc";
+import { lyricsDocProblem, readLyricsDoc } from "../core/lyrics-file";
 import { badRequest, clientPath } from "./http";
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const isTime = (v: unknown) => v === null || (typeof v === "number" && Number.isFinite(v));
 
-function isWord(v: unknown): boolean {
-  return isObject(v) && isTime(v.start) && typeof v.text === "string";
-}
-
-function isLine(v: unknown): boolean {
-  if (!isObject(v) || !isTime(v.timestamp) || typeof v.text !== "string") return false;
-  if (v.words !== undefined && !(Array.isArray(v.words) && v.words.every(isWord))) return false;
-  return v.end === undefined || isTime(v.end);
-}
-
-export function lrcDocument(value: unknown, what = "doc"): LrcDocument {
-  if (!isObject(value) || !isObject(value.metadata) || !Array.isArray(value.lines)) {
-    throw badRequest(`"${what}" is not a lyrics document`);
-  }
-  if (!Object.values(value.metadata).every((v) => v === undefined || typeof v === "string")) {
-    throw badRequest(`"${what}.metadata" must hold strings`);
-  }
-  if (!value.lines.every(isLine)) throw badRequest(`"${what}.lines" has a malformed line`);
-  return value as unknown as LrcDocument;
+export function lyricsDoc(value: unknown, what = "doc"): LyricsDoc {
+  const problem = lyricsDocProblem(value);
+  if (problem) throw badRequest(`"${what}" is not a lyrics document: ${problem}`);
+  return readLyricsDoc(value);
 }
 
 /** A path the app may write lyrics to: an absolute "*.lrc" that isn't an ".enhanced.lrc" companion. */
@@ -50,7 +35,7 @@ export function draftFields(body: Record<string, unknown>): DraftFields {
     throw badRequest(`"dismissedFlags" must be a list of strings`);
   }
   return {
-    doc: lrcDocument(body.doc),
+    doc: lyricsDoc(body.doc),
     step: body.step as Step,
     lrcPath: lrcTargetPath(body.lrcPath, "lrcPath"),
     dismissedFlags: flags as string[],

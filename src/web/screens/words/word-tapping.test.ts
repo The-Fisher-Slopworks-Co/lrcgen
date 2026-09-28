@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { LrcDocument, LrcLine } from "../../../core/lrc-document";
+import { groupsFromLrcLines, type LrcLine } from "../../../core/lrc-lines";
+import type { Group, LyricsDoc } from "../../../core/lyrics";
+import { doc as build } from "../../../core/testing";
 import {
   arrivalSpot,
   changedSpot,
@@ -16,8 +18,10 @@ import {
   wordSpan,
 } from "./word-tapping";
 
-function doc(lines: LrcLine[]): LrcDocument {
-  return { metadata: { tool: "t" }, lines };
+// Lines written the LRC way; an empty one is an empty group, so indices stay put.
+const toGroup = (line: LrcLine): Group => (line.text.trim() === "" ? { id: "", labels: [], words: [] } : groupsFromLrcLines([line])[0]!);
+function doc(lines: LrcLine[]): LyricsDoc {
+  return build(...lines.map(toGroup));
 }
 const plain = (text: string, timestamp: number | null = null): LrcLine => ({ timestamp, text });
 const timed = (text: string, starts: (number | null)[], end?: number): LrcLine => {
@@ -27,8 +31,13 @@ const timed = (text: string, starts: (number | null)[], end?: number): LrcLine =
 
 describe("arrivalSpot", () => {
   test("starts at the first word without a start", () => {
-    const d = doc([timed("a b", [1, 2]), plain(""), timed("c d", [3, null]), plain("e f")]);
-    expect(arrivalSpot(d, { line: 3, word: null })).toEqual({ line: 2, word: 1 });
+    const d = doc([timed("a b", [1, 2]), plain(""), timed("c d e", [3, 4, null]), plain("e f")]);
+    expect(arrivalSpot(d, { line: 3, word: null })).toEqual({ line: 2, word: 2 });
+  });
+
+  test("a line with only its start (from the Lines step) starts at its first word", () => {
+    const d = doc([timed("a b", [1, 2]), plain("c d", 300)]);
+    expect(arrivalSpot(d, { line: 0, word: null })).toEqual({ line: 1, word: 0 });
   });
 
   test("keeps a word picked on purpose", () => {
@@ -82,8 +91,7 @@ describe("moving between words", () => {
 describe("tapWord", () => {
   test("times the word and moves on; the first word also starts the line", () => {
     const r = tapWord(doc([plain("a b"), plain("c")]), { line: 0, word: 0 }, 1234.4);
-    expect(r.doc.lines[0]!.timestamp).toBe(1234);
-    expect(r.doc.lines[0]!.words!.map((w) => w.start)).toEqual([1234, null]);
+    expect(r.doc.groups[0]!.words.map((w) => w.start)).toEqual([1234, null]);
     expect(r.next).toEqual({ line: 0, word: 1 });
   });
 
@@ -95,7 +103,7 @@ describe("tapWord", () => {
 describe("changedSpot", () => {
   test("finds the word an undone tap was on", () => {
     const before = doc([plain("x", 1), timed("a b c", [10, 20, 30])]);
-    const after = { ...before, lines: [before.lines[0]!, timed("a b c", [10, 20, null])] };
+    const after = { ...before, groups: [before.groups[0]!, { ...toGroup(timed("a b c", [10, 20, null])), id: before.groups[1]!.id }] };
     expect(changedSpot(before, after)).toEqual({ line: 1, word: 2 });
     expect(changedSpot(before, before)).toBeNull();
   });
@@ -128,10 +136,15 @@ describe("preRollStart", () => {
 });
 
 describe("wordSpan", () => {
-  const d = doc([timed("a b c", [1000, 1400, null], 5000), plain("d", 9000)]);
-  test("runs to the next timed word, capped at 1.5 s", () => {
+  const d = doc([timed("a b c", [1000, 1400, null]), plain("d", 9000)]);
+  test("without an end, runs to the next timed word, capped at 1.5 s", () => {
     expect(wordSpan(d, { line: 0, word: 0 }, 60_000)).toEqual({ from: 1000, to: 1400 });
     expect(wordSpan(d, { line: 0, word: 1 }, 60_000)).toEqual({ from: 1400, to: 2900 });
+  });
+
+  test("with an end, exactly the word", () => {
+    const e = doc([{ timestamp: 1000, text: "a b", words: [{ start: 1000, end: 1180, text: "a " }, { start: 1400, text: "b" }] }]);
+    expect(wordSpan(e, { line: 0, word: 0 }, 60_000)).toEqual({ from: 1000, to: 1180 });
   });
 
   test("nothing for an untimed word", () => {
@@ -144,21 +157,21 @@ test("wordCounts counts lines whose words are all timed, leaving out empty lines
 });
 
 test("partlyTimed and firstUntimedWord skip punctuation-only words", () => {
-  const dash = { timestamp: 1, text: "a — b", words: [{ text: "a ", start: 1 }, { text: "— ", start: null }, { text: "b", start: null }] };
-  expect(firstUntimedWord(dash)).toBe(2);
+  const dash = toGroup({ timestamp: 1, text: "a — b c", words: [{ text: "a ", start: 1 }, { text: "— ", start: null }, { text: "b ", start: 2 }, { text: "c", start: null }] });
+  expect(firstUntimedWord(dash)).toBe(3);
   expect(partlyTimed(dash)).toBe(true);
-  expect(partlyTimed(timed("a b", [1, 2]))).toBe(false);
-  expect(partlyTimed(plain("a b"))).toBe(false);
+  expect(partlyTimed(toGroup(timed("a b", [1, 2])))).toBe(false);
+  expect(partlyTimed(toGroup(plain("a b")))).toBe(false);
 });
 
 describe("shortWords", () => {
   test("lists short words but not the last one", () => {
-    expect(shortWords(plain("Tonight I’m yours to keep"))).toEqual(["I’m", "to"]);
-    expect(shortWords(plain("И твой голос так красив, он"))).toEqual(["И", "так"]);
+    expect(shortWords(toGroup(plain("Tonight I’m yours to keep")))).toEqual(["I’m", "to"]);
+    expect(shortWords(toGroup(plain("И твой голос так красив, он")))).toEqual(["И", "так"]);
   });
 
   test("none once the line has a joined word", () => {
-    expect(shortWords({ timestamp: null, text: "I am here", words: [{ text: "I am ", start: null }, { text: "here", start: null }] })).toEqual([]);
+    expect(shortWords(toGroup({ timestamp: 1, text: "I am here", words: [{ text: "I am ", start: 1 }, { text: "here", start: null }] }))).toEqual([]);
   });
 });
 

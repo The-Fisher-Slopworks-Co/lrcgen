@@ -3,8 +3,9 @@
 //   <Segmented mono options={[{ value: 0.5, label: "0.5×" }, …]} value={rate} onChange={setRate} label="Speed" />
 //   <Chip tone="vocals">vocals only</Chip>
 
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, CSSProperties, InputHTMLAttributes, ReactNode } from "react";
 import { keyLabel } from "../hotkeys/key-spec";
+import { labelHue } from "../lib/labels";
 
 /** A key cap. `keys` takes a hotkey spec ("Ctrl+S" → "Ctrl S"); children are shown as is. */
 export function Kbd({ keys, children, onAccent }: { keys?: string; children?: ReactNode; onAccent?: boolean }) {
@@ -139,6 +140,26 @@ export function Chip({
   }
   return (
     <span className={className} title={title}>
+      {children}
+    </span>
+  );
+}
+
+/** A group's labels as coloured chips. */
+export function LabelChips({ labels, small }: { labels: string[]; small?: boolean }) {
+  return (
+    <span className="label-chips">
+      {labels.map((label) => (
+        <LabelChip key={label} label={label} small={small} />
+      ))}
+    </span>
+  );
+}
+
+export function LabelChip({ label, small, children }: { label: string; small?: boolean; children?: ReactNode }) {
+  return (
+    <span className={small ? "label-chip sm" : "label-chip"} style={{ "--c": labelHue(label) } as CSSProperties}>
+      {label}
       {children}
     </span>
   );

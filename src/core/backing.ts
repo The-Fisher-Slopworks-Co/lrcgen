@@ -1,9 +1,7 @@
-import type { LrcLine } from "./lrc-document";
+// A line all in parentheses is a backing vocal: "(one by one)". In LRC nothing else marks one, so that's how
+// lines from LRC files (and older drafts) become groups labelled "backing" (./lrc-lines).
 
-// A backing-vocal line is one whose whole text is wrapped in parentheses: "(one by one)".
-// Nothing else marks it, so it survives a round trip through any LRC file.
-
-function isWrapped(text: string): boolean {
+export function isWrapped(text: string): boolean {
   const t = text.trim();
   if (!t.startsWith("(") || !t.endsWith(")")) return false;
   // The opening parenthesis must be the one that closes at the end: "(oh) and (ah)" is not a backing line.
@@ -14,13 +12,4 @@ function isWrapped(text: string): boolean {
     if (depth === 0) return false;
   }
   return depth === 1;
-}
-
-export function isBacking(line: LrcLine): boolean {
-  return isWrapped(line.text);
-}
-
-/** Wraps text in parentheses unless it already is. */
-export function asBacking(text: string): string {
-  return isWrapped(text) ? text : `(${text.trim()})`;
 }

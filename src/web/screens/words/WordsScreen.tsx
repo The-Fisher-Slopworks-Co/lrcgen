@@ -1,14 +1,14 @@
-// 4 · Words: tap Enter as each word starts. The selected word of the selected line is the tap target; a tap
-// times it and selects the next word, then the next line. Starting from a pause plays from 2 s before the line.
+// 4 · Words: tap Enter as each word starts. The selected word of the selected group is the tap target; a tap
+// times it and selects the next word, then the next group. Starting from a pause plays from 2 s before the group.
 // M joins a word with the next, / splits a joined word, W plays the word, L loops the line. Arrows move the
-// selection only while paused: during tapping a stray arrow would silently move the target.
+// selection only while paused: during tapping a stray arrow would silently move the target. Where words stop
+// sounding is set on Refine (or comes with a lyrics sync).
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { isBacking } from "../../../core/backing";
 import type { Flag } from "../../../core/flags";
-import { hasWordTimings, wordsOf, type LrcDocument, type LrcLine, type LrcWord } from "../../../core/lrc-document";
+import { groupStart, groupText, hasWordTimings, isLabelled, wordParts, wordsComplete, type Group, type LyricsDoc, type Word } from "../../../core/lyrics";
 import { adoptWordTimings } from "../../../core/lyrics-merge";
-import { joinWithNext, splitWord, wordParts } from "../../../core/word-edit";
+import { joinWithNext, splitWord } from "../../../core/word-edit";
 import type { Transcript } from "../../../shared/api";
 import { useFlags } from "../../audio/audio-data";
 import { player, usePlayerState } from "../../audio/player";
@@ -37,7 +37,7 @@ import { toastOnce, toastQuietly } from "../lines/hints";
 import {
   arrivalSpot,
   changedSpot,
-  firstUntimedWord,
+  firstTapWord,
   lineSpot,
   lineWithWords,
   nextSpot,
@@ -57,11 +57,11 @@ type Mode = "tap" | "transcript";
 /** Undo label of a tap here; Lines uses "tap line", so each screen's Backspace only takes back its own taps. */
 const TAP = "tap word";
 
-/** The selected word of a line; with no word selected (e.g. after "next line" in the footer), its first untimed word. */
-function resolveWord(line: LrcLine | undefined, word: number | null): number {
-  const words = line ? wordsOf(line) : [];
+/** The selected word of a group; with no word selected (e.g. after "next line" in the footer), its first word to tap. */
+function resolveWord(group: Group | undefined, word: number | null): number {
+  const words = group?.words ?? [];
   if (words.length === 0) return -1;
-  if (word === null) return Math.max(0, firstUntimedWord(line!));
+  if (word === null) return firstTapWord(group!);
   return Math.min(Math.max(0, word), words.length - 1);
 }
 
@@ -70,7 +70,7 @@ function currentSpot(): Spot | null {
   const song = currentSong();
   const doc = currentDoc();
   if (!song || !doc) return null;
-  const word = resolveWord(doc.lines[song.selection.line], song.selection.word);
+  const word = resolveWord(doc.groups[song.selection.line], song.selection.word);
   return word < 0 ? null : { line: song.selection.line, word };
 }
 
@@ -93,8 +93,8 @@ export function WordsScreen() {
   }, []);
 
   const lineIndex = selection.line;
-  const line: LrcLine | undefined = doc.lines[lineIndex];
-  const words = line ? wordsOf(line) : [];
+  const line: Group | undefined = doc.groups[lineIndex];
+  const words = line?.words ?? [];
   const wordIndex = resolveWord(line, selection.word);
   const complete =
     completeAt !== null && completeAt.line === lineIndex && completeAt.word === wordIndex && words[wordIndex]?.start != null;
@@ -114,7 +114,7 @@ export function WordsScreen() {
       toastOnce("Playing from 2 s before the line — press Enter as each word starts");
       return;
     }
-    if (completeAt && completeAt.line === spot.line && completeAt.word === spot.word && wordsOf(d.lines[spot.line]!)[spot.word]?.start != null) {
+    if (completeAt && completeAt.line === spot.line && completeAt.word === spot.word && d.groups[spot.line]?.words[spot.word]?.start != null) {
       toastQuietly("That was the last word. Select a word to tap it again.");
       return;
     }
@@ -137,7 +137,7 @@ export function WordsScreen() {
   };
 
   /** Arrows: only while paused (or while a single word/segment plays), never during tapping. */
-  const move = (to: (d: LrcDocument, spot: Spot) => Spot | null) => {
+  const move = (to: (d: LyricsDoc, spot: Spot) => Spot | null) => {
     const st = player.getState();
     if (st.playing && st.segmentEnd === null) {
       toastOnce("Arrows are off while playing, so a stray press can't move the word you're tapping. Pause with Space first.");
@@ -239,7 +239,7 @@ export function WordsScreen() {
             }}
           />
         ) : (
-          <section className={line && isBacking(line) ? "words-card is-backing" : "words-card"} aria-label="Current line">
+          <section className={line && isLabelled(line) ? "words-card is-backing" : "words-card"} aria-label="Current line">
             <ContextLine doc={doc} index={prevLine} />
             <div className="words-line">
               <span className="n">{line ? lineIndex + 1 : ""}</span>
@@ -257,7 +257,7 @@ export function WordsScreen() {
                   ))}
                 </div>
               ) : (
-                <span className="words-empty-line">{doc.lines.length === 0 ? "No lyrics yet." : "This line has no words."}</span>
+                <span className="words-empty-line">{doc.groups.length === 0 ? "No lyrics yet." : "This line has no words."}</span>
               )}
             </div>
             <ContextLine doc={doc} index={nextLine} />
@@ -291,25 +291,25 @@ export function WordsScreen() {
   );
 }
 
-function ContextLine({ doc, index }: { doc: LrcDocument; index: number }) {
-  const line = index >= 0 ? doc.lines[index] : undefined;
+function ContextLine({ doc, index }: { doc: LyricsDoc; index: number }) {
+  const line = index >= 0 ? doc.groups[index] : undefined;
   return (
-    <div className={line && isBacking(line) ? "words-context is-backing" : "words-context"} onClick={line ? () => selectLineStart(index) : undefined}>
+    <div className={line && isLabelled(line) ? "words-context is-backing" : "words-context"} onClick={line ? () => selectLineStart(index) : undefined}>
       <span className="n">{line ? index + 1 : ""}</span>
-      <span className="text">{line?.text ?? ""}</span>
+      <span className="text">{line ? groupText(line) : ""}</span>
     </div>
   );
 }
 
-/** Clicking a neighbouring line (while paused) makes it current, at its first untimed word. */
+/** Clicking a neighbouring group (while paused) makes it current, at its first word to tap. */
 function selectLineStart(index: number): void {
   if (player.getState().playing) return;
-  const line = currentDoc()?.lines[index];
-  if (!line) return;
-  select(index, Math.max(0, firstUntimedWord(line)));
+  const group = currentDoc()?.groups[index];
+  if (!group) return;
+  select(index, firstTapWord(group));
 }
 
-const WordBox = memo(function WordBox({ word, line, index, isNext, flagged }: { word: LrcWord; line: number; index: number; isNext: boolean; flagged: boolean }) {
+const WordBox = memo(function WordBox({ word, line, index, isNext, flagged }: { word: Word; line: number; index: number; isNext: boolean; flagged: boolean }) {
   const parts = wordParts(word);
   const timed = word.start !== null;
   const classes = ["words-box", isNext ? "is-next" : timed ? "is-done" : "is-todo", flagged && "is-flagged"].filter(Boolean).join(" ");
@@ -342,9 +342,9 @@ function LoopButton() {
 
 // ---------------------------------------------------------------- earlier in the song
 
-function Earlier({ doc, before, flags }: { doc: LrcDocument; before: number; flags: Map<string, Flag> }) {
+function Earlier({ doc, before, flags }: { doc: LyricsDoc; before: number; flags: Map<string, Flag> }) {
   const list = useRef<HTMLDivElement>(null);
-  const rows = doc.lines.map((line, i) => ({ line, i })).filter(({ line, i }) => i < before && hasWordTimings(line));
+  const rows = doc.groups.map((line, i) => ({ line, i })).filter(({ line, i }) => i < before && (hasWordTimings(line) || wordsComplete(line)));
   useLayoutEffect(() => {
     const el = list.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -357,9 +357,9 @@ function Earlier({ doc, before, flags }: { doc: LrcDocument; before: number; fla
         {rows.map(({ line, i }) => (
           <div key={i} className="words-earlier-row">
             <span className="n">{i + 1}</span>
-            <span className="t">{clock(line.timestamp)}</span>
+            <span className="t">{clock(groupStart(line))}</span>
             <div className="words-chips">
-              {wordsOf(line).map((w, j) => {
+              {line.words.map((w, j) => {
                 const flagged = flags.has(`${i}:${j}`);
                 const parts = wordParts(w);
                 return (
@@ -430,10 +430,10 @@ function TranscriptStatus({ mode, onUse }: { mode: Mode; onUse: () => void }) {
   );
 }
 
-/** How the transcription's word timings would land: matching lines, and how many of them already have timings. */
-function adoption(doc: LrcDocument, transcript: Transcript): { adopted: number; replaced: number } {
-  const { doc: next, adopted } = adoptWordTimings(doc, transcript.lines);
-  const replaced = doc.lines.filter((line, i) => next.lines[i] !== line && hasWordTimings(line)).length;
+/** How the transcription's word timings would land: matching groups, and how many of them already have timings. */
+function adoption(doc: LyricsDoc, transcript: Transcript): { adopted: number; replaced: number } {
+  const { doc: next, adopted } = adoptWordTimings(doc, transcript.groups);
+  const replaced = doc.groups.filter((g, i) => next.groups[i] !== g && hasWordTimings(g)).length;
   return { adopted, replaced };
 }
 

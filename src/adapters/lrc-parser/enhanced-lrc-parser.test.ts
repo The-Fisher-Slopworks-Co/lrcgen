@@ -1,7 +1,9 @@
 import { test, expect, describe } from "bun:test";
 import { EnhancedLrcParser } from "./enhanced-lrc-parser";
 import { SimpleLrcParser } from "./simple-lrc-parser";
-import { parseWordTags, formatWordTags } from "./word-tags";
+import { groupText, type LyricsDoc } from "../../core/lyrics";
+import { doc as docOfGroups, endsOf, group, startsOf, textsOf } from "../../core/testing";
+import { parseWordTags } from "./word-tags";
 
 const enhanced = new EnhancedLrcParser();
 const simple = new SimpleLrcParser();
@@ -49,6 +51,17 @@ describe("parseWordTags", () => {
     expect(parseWordTags("<00:01.234>Hi")).toEqual({ text: "Hi", words: [{ start: 1234, text: "Hi" }] });
   });
 
+  test("a tag before nothing but a space is a pause: the word before it ends there", () => {
+    expect(parseWordTags("<00:01.00>Hi <00:01.30> <00:01.50>there<00:02.00>")).toEqual({
+      text: "Hi there",
+      words: [
+        { start: 1000, end: 1300, text: "Hi " },
+        { start: 1500, text: "there" },
+      ],
+      end: 2000,
+    });
+  });
+
   test("keeps untagged leading text as an unsynced word", () => {
     expect(parseWordTags("Oh <00:02.00>yeah")).toEqual({
       text: "Oh yeah",
@@ -60,21 +73,7 @@ describe("parseWordTags", () => {
   });
 });
 
-describe("formatWordTags", () => {
-  test("writes plain text for lines without word timings", () => {
-    expect(formatWordTags({ timestamp: 1000, text: " Hello " })).toBe("Hello");
-  });
-
-  test("skips the end when it is not after the last word", () => {
-    const line = { timestamp: 1000, text: "Hi there", words: [{ start: 1000, text: "Hi " }, { start: 1500, text: "there" }], end: 1200 };
-    expect(formatWordTags(line)).toBe("<00:01.00>Hi <00:01.50>there");
-  });
-
-  test("merges unsynced words into the word before", () => {
-    const line = { timestamp: 1000, text: "Hi there", words: [{ start: 1000, text: "Hi " }, { start: null, text: "there" }] };
-    expect(formatWordTags(line)).toBe("<00:01.00>Hi there");
-  });
-});
+const withMeta = (d: LyricsDoc): LyricsDoc => ({ ...d, metadata: { tool: "t" } });
 
 describe("EnhancedLrcParser", () => {
   const input = [
@@ -85,8 +84,10 @@ describe("EnhancedLrcParser", () => {
 
   test("round-trips word timings", () => {
     const doc = enhanced.parse(input);
+    expect(startsOf(doc.groups[0])).toEqual([12000, 12480, 12900]);
+    expect(endsOf(doc.groups[0])).toEqual([null, null, 14200]);
     const again = enhanced.parse(enhanced.serialize(doc));
-    expect(again.lines).toEqual(doc.lines);
+    expect(again.groups).toEqual(doc.groups);
     expect(enhanced.serialize(doc)).toContain("[00:12.00]<00:12.00>Never <00:12.48>gonna <00:12.90>give<00:14.20>");
     expect(enhanced.serialize(doc)).toContain("[00:15.00] Plain line");
   });
@@ -94,49 +95,39 @@ describe("EnhancedLrcParser", () => {
   test("round-trips joined words: one tag, several parts", () => {
     const line = "[00:01.00]<00:01.00>And all <00:01.60>through <00:02.00>the night<00:03.00>";
     const doc = enhanced.parse(line);
-    expect(doc.lines[0]!.words).toEqual([
-      { start: 1000, text: "And all " },
-      { start: 1600, text: "through " },
-      { start: 2000, text: "the night" },
-    ]);
+    expect(textsOf(doc.groups[0])).toEqual(["And all", "through", "the night"]);
+    expect(enhanced.serialize(doc)).toContain(line);
+  });
+
+  test("round-trips word ends as pauses", () => {
+    const line = "[00:01.00]<00:01.00>Hi <00:01.30> <00:01.50>there<00:02.00>";
+    const doc = enhanced.parse(line);
+    expect(endsOf(doc.groups[0])).toEqual([1300, 2000]);
     expect(enhanced.serialize(doc)).toContain(line);
   });
 
   test("an untimed word after a split rides along with the word before and reads back joined", () => {
-    const split = {
-      timestamp: 1000,
-      text: "And all through",
-      words: [{ start: 1000, text: "And " }, { start: null, text: "all " }, { start: 1600, text: "through" }],
-      end: 2000,
-    };
-    const output = enhanced.serialize({ ...enhanced.parse(""), lines: [split] });
+    const output = enhanced.serialize(withMeta(docOfGroups(group("And all through", [1000, null, 1600], [null, null, 2000]))));
     expect(output).toContain("[00:01.00]<00:01.00>And all <00:01.60>through<00:02.00>");
-    expect(enhanced.parse(output).lines[0]).toEqual({
-      timestamp: 1000,
-      text: "And all through",
-      words: [{ start: 1000, text: "And all " }, { start: 1600, text: "through" }],
-      end: 2000,
-    });
+    expect(textsOf(enhanced.parse(output).groups[0])).toEqual(["And all", "through"]);
   });
 
-  test("untimed words before the first timed one stay untimed", () => {
-    const line = { timestamp: 1000, text: "Oh yeah", words: [{ start: null, text: "Oh " }, { start: 2000, text: "yeah" }] };
-    const output = enhanced.serialize({ ...enhanced.parse(""), lines: [line] });
-    expect(output).toContain("[00:01.00]Oh <00:02.00>yeah");
-    expect(enhanced.parse(output).lines[0]).toEqual(line);
+  test("untimed words before the first timed one read back with the line start", () => {
+    const output = enhanced.serialize(withMeta(docOfGroups(group("Oh yeah", [null, 2000]))));
+    expect(output).toContain("[00:02.00]Oh <00:02.00>yeah");
+    expect(startsOf(enhanced.parse(output).groups[0])).toEqual([2000, 2000]);
   });
 
-  test("a line whose words are all untimed is written plain", () => {
-    const line = { timestamp: 1000, text: "Oh yeah", words: [{ start: null, text: "Oh " }, { start: null, text: "yeah" }] };
-    const output = enhanced.serialize({ ...enhanced.parse(""), lines: [line] });
+  test("a line with only its start is written plain", () => {
+    const output = enhanced.serialize(withMeta(docOfGroups(group("Oh yeah", [1000]))));
     expect(output).toContain("[00:01.00] Oh yeah");
-    expect(enhanced.parse(output).lines[0]).toEqual({ timestamp: 1000, text: "Oh yeah" });
+    expect(startsOf(enhanced.parse(output).groups[0])).toEqual([1000, null]);
   });
 
   test("the plain parser reads the tags but writes plain LRC", () => {
     const doc = simple.parse(input);
-    expect(doc.lines[0]!.text).toBe("Never gonna give");
-    expect(doc.lines[0]!.words).toHaveLength(3);
+    expect(groupText(doc.groups[0]!)).toBe("Never gonna give");
+    expect(startsOf(doc.groups[0])).toEqual([12000, 12480, 12900]);
     const output = simple.serialize(doc);
     expect(output).toContain("[00:12.00] Never gonna give");
     expect(output).not.toContain("<");

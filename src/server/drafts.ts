@@ -1,10 +1,10 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { Draft, DraftSummary } from "../shared/api";
-import type { LrcMetadata } from "../core/lrc-document";
+import type { Metadata } from "../core/lyrics";
 import type { DraftStore } from "../ports/draft-store";
 import type { LrcParser } from "../ports/lrc-parser";
-import { createDocument } from "../core/lrc-document";
+import { createDoc } from "../core/lyrics";
 import { draftProgress } from "../core/draft-status";
 import { findFlags } from "../core/flags";
 import { draftIdFor } from "./audio-files";
@@ -67,18 +67,19 @@ export class DraftService {
       const tags = await this.media.tags(audioPath);
       const lyrics = lyricsPath ? await readLyricsFile(lyricsPath, this.parser) : null;
       // What the user saved in the lyrics file wins; tags only fill the gaps.
-      const metadata: Partial<LrcMetadata> = { ...lyrics?.metadata };
+      const metadata: Partial<Metadata> = { ...lyrics?.metadata };
       for (const key of ["artist", "title", "album"] as const) {
         const fromTags = tags[key];
         if (!metadata[key]?.trim() && fromTags) metadata[key] = fromTags;
       }
-      const doc = { ...createDocument(metadata), lines: lyrics?.lines ?? [] };
+      const { tool: _, ...fields } = metadata;
+      const doc = createDoc(fields, lyrics?.groups ?? []);
       const now = this.now();
       const draft: Draft = {
         id,
         audioPath,
         doc,
-        step: doc.lines.length > 0 ? "lines" : "lyrics",
+        step: doc.groups.length > 0 ? "lines" : "lyrics",
         lrcPath: path.join(path.dirname(audioPath), `${baseName(audioPath)}.lrc`),
         dismissedFlags: [],
         savedAt: null,

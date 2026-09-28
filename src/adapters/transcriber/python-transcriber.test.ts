@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { TranscribeProgressEvent } from "../../ports/transcriber";
+import { groupText } from "../../core/lyrics";
 import { PythonTranscriber, readLines } from "./python-transcriber";
 
 // A stand-in for `uv run --script transcribe.py`: prints what uv and the script would, echoing its argv.
@@ -49,7 +50,7 @@ describe("PythonTranscriber", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(JSON.parse(result.lines![0]!.text)).toEqual([
+    expect(JSON.parse(groupText(result.groups![0]!))).toEqual([
       "/music/song.flac", "--vocals", vocalsPath,
       "--base-url", "https://api.example", "--model", "m",
     ]);
@@ -70,7 +71,7 @@ describe("PythonTranscriber", () => {
       separateOnly: true,
       settings: { ...settings, apiKey: "" },
     });
-    expect(JSON.parse(result.lines![0]!.text)).toEqual(["/music/song.flac", "--vocals", path.join(dir, "v.flac"), "--separate-only"]);
+    expect(JSON.parse(groupText(result.groups![0]!))).toEqual(["/music/song.flac", "--vocals", path.join(dir, "v.flac"), "--separate-only"]);
   });
 
   test("aligning given lyrics needs no API key and passes them in a file that is removed afterwards", async () => {
@@ -81,7 +82,7 @@ describe("PythonTranscriber", () => {
       settings: { ...settings, apiKey: "" },
     });
     expect(result.success).toBe(true);
-    const args = JSON.parse(result.lines![0]!.text) as string[];
+    const args = JSON.parse(groupText(result.groups![0]!)) as string[];
     const lyricsFile = args[args.indexOf("--lyrics-file") + 1]!;
     expect(args).toEqual(["/music/song.flac", "--vocals", path.join(dir, "v.flac"), "--lyrics-file", lyricsFile]);
     expect(result.rawLyrics).toBe("Первая строка\nSecond line");

@@ -45,7 +45,7 @@ function textPreview(text: LyricsText): PreviewContent {
   const lrc = text.origin === "file" && /\.lrc$/i.test(text.name ?? "");
   return {
     title: text.origin === "file" ? (text.name ?? "File") : "Pasted from the clipboard",
-    ...parseLyricsText(text.content, { lrc }),
+    ...parseLyricsText(text.content, { lrc, name: text.name ?? undefined }),
     timingNote: TEXT_NOTE,
   };
 }
@@ -99,7 +99,7 @@ function LyricsSources() {
 
   const applyCurrent = () => {
     if (!preview || preview.empty) return;
-    applyLyrics(primaryUse(preview).lines);
+    applyLyrics(primaryUse(preview).groups);
   };
 
   const pasteFromClipboard = async () => {
@@ -135,7 +135,7 @@ function LyricsSources() {
   };
 
   const syncLyrics = async () => {
-    if (lyricLineCount(doc.lines) > 0 && !runningJob("align")) {
+    if (lyricLineCount(doc.groups) > 0 && !runningJob("align")) {
       setStarting(true);
       await startJob("align");
     }
@@ -187,7 +187,7 @@ function LyricsSources() {
     "Ctrl+Enter": { run: applyCurrent, inInputs: true, repeat: false },
   });
 
-  const existing = lyricLineCount(doc.lines);
+  const existing = lyricLineCount(doc.groups);
 
   return (
     <div className="lyrics-screen">
@@ -212,7 +212,7 @@ function LyricsSources() {
           kbd="Ctrl+O"
           onClick={() => (loaded && source !== "file" ? setSource("file") : pickFile())}
         >
-          TXT or LRC from disk.
+          lrcgen lyrics (.lyrics.json), LRC or TXT from disk.
         </SourceCard>
         <SourceCard pressed={false} icon={<WaveIcon />} title="Transcribe automatically" onClick={() => void transcribe()} disabled={starting}>
           {transcribing ? "Running now — open it to see how far it got." : "Comes with line and word timings. Slow: a minute to several."}
@@ -224,7 +224,7 @@ function LyricsSources() {
               : `Line and word timings for the ${plural(existing, "line")} you have. No API key needed.`}
           </SourceCard>
         )}
-        <input ref={fileInput} type="file" accept=".lrc,.txt" hidden onChange={(e) => void onFile(e)} />
+        <input ref={fileInput} type="file" accept=".json,.lrc,.txt" hidden onChange={(e) => void onFile(e)} />
         <div style={{ flexGrow: 1 }} />
         <p className="note">You can swap the lyrics later — timings you've already set are kept for lines that still match.</p>
       </aside>
@@ -256,7 +256,7 @@ function LyricsSources() {
             onSelect={setSelectedId}
             onUse={(id) => {
               const r = results.find((x) => x.id === id);
-              if (r && !r.instrumental) applyLyrics(primaryUse(searchPreview(r)).lines);
+              if (r && !r.instrumental) applyLyrics(primaryUse(searchPreview(r)).groups);
             }}
             trackMs={trackMs}
             filledFrom={filledFrom}

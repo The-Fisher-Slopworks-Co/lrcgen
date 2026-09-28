@@ -37,7 +37,7 @@ describe("drafts", () => {
       savedAt: null,
       publishedAt: null,
     });
-    expect(draft.doc.lines).toEqual([]);
+    expect(draft.doc.groups).toEqual([]);
     expect(await Bun.file(path.join(t.dirs.dataDir, "drafts", `${draft.id}.json`)).exists()).toBe(true);
   });
 
@@ -45,9 +45,34 @@ describe("drafts", () => {
     const draft = await open({ audioPath: song, lyricsPath: path.join(dir, "words.lrc") });
     expect(draft.step).toBe("lines");
     expect(draft.doc.metadata).toMatchObject({ artist: "File Artist", title: "File Title", album: "Tag Album" });
-    expect(draft.doc.lines).toEqual([
-      { timestamp: 1000, text: "One" },
-      { timestamp: 2000, text: "Two" },
+    expect(draft.doc.groups.map((g) => g.words.map((w) => [w.text, w.start]))).toEqual([
+      [["One", 1000]],
+      [["Two", 2000]],
+    ]);
+  });
+
+  test("a draft from before groups is upgraded when read", async () => {
+    const old = path.join(dir, "old.wav");
+    await Bun.write(old, wavBytes({ seconds: 1 }));
+    const id = draftIdFor(old);
+    const stored = {
+      id,
+      audioPath: old,
+      doc: { metadata: { title: "Old", tool: "x" }, lines: [{ timestamp: 1000, text: "Hi there", words: [{ start: 1000, text: "Hi " }, { start: 1500, text: "there" }], end: 2000 }, { timestamp: 3000, text: "(ooh)" }] },
+      step: "refine",
+      lrcPath: path.join(dir, "old.lrc"),
+      dismissedFlags: [],
+      savedAt: null,
+      publishedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    await Bun.write(path.join(t.dirs.dataDir, "drafts", `${id}.json`), JSON.stringify(stored));
+    const draft = (await (await t.api(`/api/drafts/${id}`)).json()) as Draft;
+    expect(draft.doc.metadata.title).toBe("Old");
+    expect(draft.doc.groups.map((g) => [g.labels, g.words.map((w) => [w.text, w.start, w.end])])).toEqual([
+      [[], [["Hi", 1000, null], ["there", 1500, 2000]]],
+      [["backing"], [["ooh", 3000, null]]],
     ]);
   });
 
@@ -88,7 +113,7 @@ describe("drafts", () => {
       createdAt: 1,
       step: "words",
       dismissedFlags: ["f1"],
-      doc: { ...before.doc, lines: [{ timestamp: 500, text: "Changed" }] },
+      doc: { ...before.doc, groups: [{ id: "g1", labels: ["backing"], words: [{ id: "w1", text: "Changed", start: 500, end: 900 }] }] },
     };
     const res = await t.api(`/api/drafts/${id}`, { method: "PUT", json: edited });
     expect(res.status).toBe(200);
@@ -105,7 +130,7 @@ describe("drafts", () => {
       dismissedFlags: ["f1"],
       updatedAt,
     });
-    expect(after.doc.lines).toEqual([{ timestamp: 500, text: "Changed" }]);
+    expect(after.doc.groups).toEqual([{ id: "g1", labels: ["backing"], words: [{ id: "w1", text: "Changed", start: 500, end: 900 }] }]);
   });
 
   test("PUT validates the body", async () => {
@@ -113,7 +138,7 @@ describe("drafts", () => {
     const draft = (await (await t.api(`/api/drafts/${id}`)).json()) as Draft;
     const put = (body: object) => t.api(`/api/drafts/${id}`, { method: "PUT", json: body });
     expect((await put({ ...draft, step: "nope" })).status).toBe(400);
-    expect((await put({ ...draft, doc: { lines: "x" } })).status).toBe(400);
+    expect((await put({ ...draft, doc: { metadata: {}, groups: "x" } })).status).toBe(400);
     expect((await put({ ...draft, lrcPath: path.join(dir, "x.txt") })).status).toBe(400);
     expect((await put({ ...draft, id: "other" })).status).toBe(400);
     expect((await t.api("/api/drafts/0123456789abcdef", { method: "PUT", json: draft })).status).toBe(400);

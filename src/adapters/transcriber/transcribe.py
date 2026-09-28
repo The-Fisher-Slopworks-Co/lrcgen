@@ -22,9 +22,9 @@ one object per line:
 
     {"type": "stage", "stage": "init"|"demucs"|"api"|"align", "message": "...", "progress": <0-1, optional>}
     {"type": "result", "lines": [{"timestamp": <ms|null>, "text": "...",
-        "words": [{"start": <ms>, "text": "..."}], "end": <ms>}], "rawLyrics": "..."}
+        "words": [{"start": <ms>, "text": "..."}]}], "rawLyrics": "..."}
 
-"words" and "end" are only present on timed lines. With --separate-only the
+"words" is only present on timed lines. With --separate-only the
 result has no lines and empty rawLyrics. With --lyrics-file the lyrics are
 read from that file instead of transcribed (no "api" stage, no API key), and
 rawLyrics is the file's text.
@@ -386,12 +386,13 @@ def _ms(seconds: float) -> int:
     return int(round(seconds * 1000))
 
 
-def attach_word_times(line: str, aligned: list[dict]) -> tuple[list[dict], int] | None:
-    """Put aligned times on the words of `line` as written.
+def attach_word_times(line: str, aligned: list[dict]) -> list[dict] | None:
+    """Put aligned start times on the words of `line` as written.
 
-    Returns the words as {"start": ms, "text": word plus the space after it}
-    and the end of the last one in ms, or None if they don't add up. A token
-    with nothing to align (a lone dash, "...") rides along with its neighbour.
+    Returns the words as {"start": ms, "text": word plus the space after it},
+    or None if they don't add up. A token with nothing to align (a lone dash,
+    "...") rides along with its neighbour. Where words end is left out: a word
+    lasts until the next one starts unless someone sets its end.
     """
     words: list[dict] = []
     prefix = ""
@@ -413,7 +414,7 @@ def attach_word_times(line: str, aligned: list[dict]) -> tuple[list[dict], int] 
         return None
     for word in words[:-1]:
         word["text"] += " "
-    return words, _ms(aligned[-1]["end"])
+    return words
 
 
 def build_lines(vocals: Path, lyrics: str) -> list[dict]:
@@ -427,16 +428,14 @@ def build_lines(vocals: Path, lyrics: str) -> list[dict]:
         if not aligned:
             out.append({"timestamp": None, "text": stripped})
             continue
-        attached = attach_word_times(stripped, aligned)
-        if attached is None:  # keep the line timing even if the words don't map
+        words = attach_word_times(stripped, aligned)
+        if words is None:  # keep the line timing even if the words don't map
             out.append({"timestamp": _ms(aligned[0]["start"]), "text": stripped})
             continue
-        words, end = attached
         out.append({
             "timestamp": words[0]["start"],
             "text": "".join(w["text"] for w in words),
             "words": words,
-            "end": end,
         })
     return out
 

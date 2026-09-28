@@ -1,6 +1,4 @@
-import type { LrcDocument } from "./lrc-document";
-import type { LrcLine } from "./lrc-document";
-import { hasWordTimings, lineEnd } from "./lrc-document";
+import { groupEnd, groupStart, groupText, hasWordTimings, isLabelled, type Group, type LyricsDoc } from "./lyrics";
 import { msToLrc } from "./time-utils";
 
 // "Worth a look": spots that are probably wrong. lrcgen never fixes them on its own, it only points them out.
@@ -17,6 +15,7 @@ export interface Flag {
   /** Stable across timing edits of the same spot, so "It's intended" can be remembered in the draft. */
   id: string;
   kind: FlagKind;
+  /** The group (line) it's in. */
   lineIndex: number;
   /** Set for word-level flags. */
   wordIndex?: number;
@@ -45,19 +44,34 @@ function earlyMessage(subject: string, startMs: number, onsetMs: number): string
   return `${subject} starts ${Math.round(onsetMs - startMs)} ms before the voice does. The tap may have been early.`;
 }
 
-function nextLineStart(lines: LrcLine[], index: number): number | null {
-  return lines.slice(index + 1).find((line) => line.timestamp !== null)?.timestamp ?? null;
+/** The earliest start of another line (unlabelled group) after `ms`. */
+function nextLineStart(groups: Group[], index: number, ms: number): number | null {
+  let next: number | null = null;
+  groups.forEach((g, i) => {
+    if (i === index || isLabelled(g)) return;
+    const start = groupStart(g);
+    if (start !== null && start > ms && (next === null || start < next)) next = start;
+  });
+  return next;
 }
 
-/** The voice onset as a suggestion, unless moving there would reach `limit` (the next start) and put things out of order. */
+/** The voice onset as a suggestion, unless moving there would reach `limit` (the next start or the end) and put things out of order. */
 function safeOnset(onset: number | null, limit: () => number | null): number | null {
   if (onset === null) return null;
   const next = limit();
   return next === null || onset < next ? onset : null;
 }
 
-/** All flags in document order. */
-export function findFlags(doc: LrcDocument, options: FlagOptions = {}): Flag[] {
+/** Where a flag points in the song: its word's start, else its group's start. */
+export function flagTime(doc: LyricsDoc, flag: Flag): number | null {
+  const group = doc.groups[flag.lineIndex];
+  if (!group) return null;
+  if (flag.wordIndex !== undefined) return group.words[flag.wordIndex]?.start ?? groupStart(group);
+  return groupStart(group);
+}
+
+/** All flags in document order. Labelled groups (backing vocals, ad-libs) may overlap the lines, so only their words are checked. */
+export function findFlags(doc: LyricsDoc, options: FlagOptions = {}): Flag[] {
   const { voiceOnsetAfter, dismissed } = options;
   const flags: Flag[] = [];
   const add = (flag: Omit<Flag, "id">, text: string) => {
@@ -66,35 +80,35 @@ export function findFlags(doc: LrcDocument, options: FlagOptions = {}): Flag[] {
   };
 
   let previousLine: { index: number; start: number } | null = null;
-  doc.lines.forEach((line, lineIndex) => {
-    const lineText = line.text.trim();
-    if (line.timestamp !== null) {
-      if (previousLine && line.timestamp < previousLine.start) {
+  doc.groups.forEach((group, lineIndex) => {
+    const lineText = groupText(group);
+    const start = groupStart(group);
+    if (start !== null && !isLabelled(group)) {
+      if (previousLine && start < previousLine.start) {
         add({
           kind: "lines-out-of-order",
           lineIndex,
-          message: `The line starts at ${msToLrc(line.timestamp)} — before line ${previousLine.index + 1} above it (${msToLrc(previousLine.start)}).`,
+          message: `The line starts at ${msToLrc(start)} — before line ${previousLine.index + 1} above it (${msToLrc(previousLine.start)}).`,
         }, lineText);
       }
-      previousLine = { index: lineIndex, start: line.timestamp };
+      previousLine = { index: lineIndex, start };
     }
 
     const checkSilence = voiceOnsetAfter && lineText !== "";
-    if (!hasWordTimings(line)) {
-      const onset = checkSilence && line.timestamp !== null
-        ? safeOnset(voiceOnsetAfter(line.timestamp), () => nextLineStart(doc.lines, lineIndex))
+    if (!hasWordTimings(group)) {
+      const onset = checkSilence && start !== null
+        ? safeOnset(voiceOnsetAfter(start), () => nextLineStart(doc.groups, lineIndex, start))
         : null;
       if (onset !== null) {
-        add({ kind: "starts-in-silence", lineIndex, message: earlyMessage("The line", line.timestamp!, onset), suggestMs: onset }, lineText);
+        add({ kind: "starts-in-silence", lineIndex, message: earlyMessage("The line", start!, onset), suggestMs: onset }, lineText);
       }
       return;
     }
 
     let previousWord: { text: string; start: number } | null = null;
-    const words = line.words!;
-    words.forEach((word, wordIndex) => {
+    group.words.forEach((word, wordIndex) => {
       if (word.start === null) return;
-      const text = word.text.trim();
+      const text = word.text;
       if (previousWord && word.start < previousWord.start) {
         add({
           kind: "words-out-of-order",
@@ -104,9 +118,13 @@ export function findFlags(doc: LrcDocument, options: FlagOptions = {}): Flag[] {
         }, text);
       }
       previousWord = { text, start: word.start };
-      // The last word must also stay before the line's end and the next line.
-      const limit = () => words.slice(wordIndex + 1).find((w) => w.start !== null)?.start
-        ?? lineEnd(line) ?? nextLineStart(doc.lines, lineIndex);
+      // A suggestion keeps the word before its own end and the next word; the last word also before the line's end and the next line.
+      const limit = () => {
+        const nextWord = group.words.slice(wordIndex + 1).find((w) => w.start !== null)?.start ?? null;
+        const own = [nextWord, word.end].filter((t): t is number => t !== null);
+        if (own.length > 0) return Math.min(...own);
+        return groupEnd(group) ?? nextLineStart(doc.groups, lineIndex, word.start!);
+      };
       const onset = checkSilence ? safeOnset(voiceOnsetAfter(word.start), limit) : null;
       if (onset !== null) {
         add({ kind: "starts-in-silence", lineIndex, wordIndex, message: earlyMessage(`“${text}”`, word.start, onset), suggestMs: onset }, text);

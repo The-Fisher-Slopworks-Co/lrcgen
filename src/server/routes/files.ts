@@ -66,7 +66,7 @@ export function fileRoutes(ctx: ServerContext): RouteTable {
     "/api/lyrics-file": {
       GET: async (req) => {
         const filePath = clientPath(query(req, "path"));
-        if (!isLyricsPath(filePath)) throw badRequest("Only .lrc and .txt files can be read");
+        if (!isLyricsPath(filePath)) throw badRequest("Only .lyrics.json, .lrc and .txt files can be read");
         if (!(await stat(filePath).catch(() => null))?.isFile()) throw notFound(`File not found: ${filePath}`);
         const doc = await readLyricsFile(filePath, ctx.registry.lrcParser);
         const content: LyricsFileContent = { path: filePath, doc, timing: timingLevel(doc) };

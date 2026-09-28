@@ -95,6 +95,13 @@
 .preview-line.current.backing {
   font-size: calc(38px * var(--k));
 }
+/* The current line with the backing vocals and ad-libs sounding over it right under it. */
+.preview-current {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(8px * var(--k));
+}
 .preview-line.prev.backing,
 .preview-line.next.backing {
   font-size: calc(21px * var(--k));

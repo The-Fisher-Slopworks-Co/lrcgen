@@ -1,10 +1,12 @@
 import type { LrcParser } from "../../ports/lrc-parser";
-import type { LrcDocument, LrcLine, LrcMetadata } from "../../core/lrc-document";
-import { createDocument } from "../../core/lrc-document";
-import { msToLrc, lrcToMs, LRC_TIME_PATTERN } from "../../core/time-utils";
+import type { LrcLine } from "../../core/lrc-lines";
+import { groupsFromLrcLines } from "../../core/lrc-lines";
+import { exportLines, formatPlainLine, type ExportLine } from "../../core/lrc-export";
+import { createDoc, type LyricsDoc, type Metadata } from "../../core/lyrics";
+import { lrcToMs, LRC_TIME_PATTERN } from "../../core/time-utils";
 import { parseWordTags } from "./word-tags";
 
-const METADATA_TAGS: Record<string, keyof LrcMetadata> = {
+const METADATA_TAGS: Record<string, keyof Metadata> = {
   ar: "artist",
   ti: "title",
   al: "album",
@@ -18,9 +20,10 @@ const REVERSE_TAGS: Record<string, string> = {
 
 const LINE_RE = new RegExp(`^\\[(${LRC_TIME_PATTERN})\\](.*)$`);
 
+/** Reads LRC (word tags from Enhanced LRC too, so they never leak into the text); writes plain LRC. */
 export class SimpleLrcParser implements LrcParser {
-  parse(content: string): LrcDocument {
-    const metadata: Partial<Omit<LrcMetadata, "tool">> = {};
+  parse(content: string): LyricsDoc {
+    const metadata: Partial<Omit<Metadata, "tool">> = {};
     const lines: LrcLine[] = [];
 
     for (const raw of content.split("\n")) {
@@ -38,7 +41,6 @@ export class SimpleLrcParser implements LrcParser {
         continue;
       }
 
-      // Word tags from enhanced files are read too, so they never leak into the text.
       const lineMatch = trimmed.match(LINE_RE);
       if (lineMatch) {
         const timestamp = lrcToMs(lineMatch[1]!);
@@ -49,11 +51,10 @@ export class SimpleLrcParser implements LrcParser {
       lines.push({ timestamp: null, ...parseWordTags(trimmed) });
     }
 
-    const doc = createDocument(metadata);
-    return { ...doc, lines };
+    return createDoc(metadata, groupsFromLrcLines(lines));
   }
 
-  serialize(doc: LrcDocument): string {
+  serialize(doc: LyricsDoc): string {
     const parts: string[] = [];
     for (const [field, tag] of Object.entries(REVERSE_TAGS)) {
       const value = doc.metadata[field];
@@ -62,14 +63,13 @@ export class SimpleLrcParser implements LrcParser {
       }
     }
     parts.push(`[tool:${doc.metadata.tool}]`);
-    for (const line of doc.lines) {
+    for (const line of exportLines(doc)) {
       parts.push(this.formatLine(line));
     }
     return parts.join("\n");
   }
 
-  protected formatLine(line: LrcLine): string {
-    const text = line.text.trim();
-    return line.timestamp !== null ? `[${msToLrc(line.timestamp)}] ${text}` : text;
+  protected formatLine(line: ExportLine): string {
+    return formatPlainLine(line);
   }
 }

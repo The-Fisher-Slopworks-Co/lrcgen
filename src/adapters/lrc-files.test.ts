@@ -5,8 +5,8 @@ import path from "node:path";
 import { readLrcFile, writeLrcFiles } from "./lrc-files";
 import { SimpleLrcParser } from "./lrc-parser/simple-lrc-parser";
 import { EnhancedLrcParser } from "./lrc-parser/enhanced-lrc-parser";
-import { createDocument } from "../core/lrc-document";
-import type { LrcDocument } from "../core/lrc-document";
+import { type LyricsDoc } from "../core/lyrics";
+import { docOf } from "../core/testing";
 
 const plain = new SimpleLrcParser();
 const enhanced = new EnhancedLrcParser();
@@ -15,18 +15,15 @@ let dir: string;
 beforeEach(() => { dir = mkdtempSync(path.join(tmpdir(), "lrcgen-files-")); });
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
-const withWords: LrcDocument = {
-  ...createDocument(),
-  lines: [
-    { timestamp: 1000, text: "Hello world", words: [{ start: 1000, text: "Hello " }, { start: 1500, text: "world" }], end: 2000 },
-    { timestamp: 3000, text: "Plain" },
-  ],
-};
+const withWords: LyricsDoc = docOf(
+  { timestamp: 1000, text: "Hello world", words: [{ start: 1000, text: "Hello " }, { start: 1500, text: "world" }], end: 2000 },
+  { timestamp: 3000, text: "Plain" },
+);
 
 describe("writeLrcFiles", () => {
   test("writes only the plain file when there are no word timings", async () => {
     const file = path.join(dir, "song.lrc");
-    const written = await writeLrcFiles(file, { ...createDocument(), lines: [{ timestamp: 1000, text: "Hi" }] }, plain, enhanced);
+    const written = await writeLrcFiles(file, docOf({ timestamp: 1000, text: "Hi" }), plain, enhanced);
     expect(written).toEqual([file]);
     expect(existsSync(path.join(dir, "song.enhanced.lrc"))).toBe(false);
   });
@@ -44,7 +41,7 @@ describe("writeLrcFiles", () => {
   test("keeps an existing companion in sync after word timings are gone", async () => {
     const file = path.join(dir, "song.lrc");
     await writeLrcFiles(file, withWords, plain, enhanced);
-    const written = await writeLrcFiles(file, { ...createDocument(), lines: [{ timestamp: 1000, text: "New" }] }, plain, enhanced);
+    const written = await writeLrcFiles(file, docOf({ timestamp: 1000, text: "New" }), plain, enhanced);
     expect(written).toHaveLength(2);
     expect(await Bun.file(path.join(dir, "song.enhanced.lrc")).text()).toContain("[00:01.00] New");
   });
@@ -55,20 +52,20 @@ describe("readLrcFile", () => {
     const file = path.join(dir, "song.lrc");
     await writeLrcFiles(file, withWords, plain, enhanced);
     const doc = await readLrcFile(file, plain);
-    expect(doc.lines).toEqual(withWords.lines);
+    expect(doc.groups).toEqual(withWords.groups);
   });
 
   test("reads a plain file without a companion", async () => {
     const file = path.join(dir, "song.lrc");
     await Bun.write(file, "[00:01.00] Hi");
     const doc = await readLrcFile(file, plain);
-    expect(doc.lines).toEqual([{ timestamp: 1000, text: "Hi" }]);
+    expect(doc.groups).toEqual(docOf({ timestamp: 1000, text: "Hi" }).groups);
   });
 
   test("reads the enhanced file directly", async () => {
     const file = path.join(dir, "song.lrc");
     await writeLrcFiles(file, withWords, plain, enhanced);
     const doc = await readLrcFile(path.join(dir, "song.enhanced.lrc"), plain);
-    expect(doc.lines).toEqual(withWords.lines);
+    expect(doc.groups).toEqual(withWords.groups);
   });
 });

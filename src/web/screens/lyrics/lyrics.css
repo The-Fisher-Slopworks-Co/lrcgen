@@ -351,8 +351,9 @@
   color: var(--text-2);
   overflow-wrap: anywhere;
 }
-.lyrics-preview-line .text.gap {
-  color: var(--muted-2);
+.lyrics-preview-line .text.backing {
+  font-style: italic;
+  color: var(--vocals);
 }
 .lyrics-preview .empty-state {
   flex-grow: 1;

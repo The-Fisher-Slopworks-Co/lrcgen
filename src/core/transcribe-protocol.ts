@@ -1,4 +1,5 @@
-import type { LrcLine, LrcWord } from "./lrc-document";
+import { groupsFromLrcLines, type LrcLine, type LrcWord } from "./lrc-lines";
+import type { Group } from "./lyrics";
 
 const STAGES = ["init", "demucs", "api", "align"] as const;
 
@@ -7,7 +8,7 @@ export type TranscribeStage = (typeof STAGES)[number];
 export type ProtocolLine =
   /** `progress` (0–1 within the stage) is sent when the pipeline can measure it. */
   | { type: "stage"; stage: TranscribeStage; message: string; progress?: number }
-  | { type: "result"; lines: LrcLine[]; rawLyrics: string }
+  | { type: "result"; groups: Group[]; rawLyrics: string }
   | { type: "error"; stage: TranscribeStage; message: string };
 
 function validateWords(value: unknown): LrcWord[] | null {
@@ -23,23 +24,24 @@ function validateWords(value: unknown): LrcWord[] | null {
   return words;
 }
 
+/**
+ * transcribe.py's lines: LRC-style, with word starts. Ends, if any are sent, are dropped: a word lasts until the
+ * next one starts unless someone sets its end. Null when malformed.
+ */
 export function validateLrcLines(value: unknown): LrcLine[] | null {
   if (!Array.isArray(value)) return null;
   const lines: LrcLine[] = [];
   for (const item of value) {
     if (typeof item !== "object" || item === null) return null;
-    const { timestamp, text, words, end } = item as Record<string, unknown>;
+    const { timestamp, text, words } = item as Record<string, unknown>;
     if (timestamp !== null && typeof timestamp !== "number") return null;
     if (typeof text !== "string") return null;
     const line: LrcLine = { timestamp: timestamp as number | null, text };
     if (words !== undefined) {
       const validWords = validateWords(words);
       if (!validWords) return null;
-      // Words that don't spell out the line would corrupt it on save; the line timing alone is still good.
-      if (validWords.map((w) => w.text).join("") === text.trim()) {
-        line.words = validWords;
-        if (typeof end === "number") line.end = end;
-      }
+      // Words that don't spell out the line would corrupt it; the line timing alone is still good.
+      if (validWords.map((w) => w.text).join("") === text.trim()) line.words = validWords;
     }
     lines.push(line);
   }
@@ -69,7 +71,7 @@ export function parseProtocolLine(raw: string): ProtocolLine | null {
   if (obj.type === "result") {
     const lines = validateLrcLines(obj.lines);
     if (!lines) return null;
-    return { type: "result", lines, rawLyrics: typeof obj.rawLyrics === "string" ? obj.rawLyrics : "" };
+    return { type: "result", groups: groupsFromLrcLines(lines), rawLyrics: typeof obj.rawLyrics === "string" ? obj.rawLyrics : "" };
   }
 
   return null;

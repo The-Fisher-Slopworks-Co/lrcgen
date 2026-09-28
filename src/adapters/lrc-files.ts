@@ -1,10 +1,10 @@
-import type { LrcDocument } from "../core/lrc-document";
+import type { LyricsDoc } from "../core/lyrics";
 import type { LrcParser } from "../ports/lrc-parser";
-import { hasAnyWordTimings } from "../core/lrc-document";
+import { hasAnyWordTimings } from "../core/lyrics";
 import { enhancedLrcPath, isEnhancedLrcPath, mergeWordTimings } from "../core/enhanced-lrc";
 
 /** Reads an LRC file together with the word timings from its "*.enhanced.lrc" companion, if there is one. */
-export async function readLrcFile(filePath: string, parser: LrcParser): Promise<LrcDocument> {
+export async function readLrcFile(filePath: string, parser: LrcParser): Promise<LyricsDoc> {
   const doc = parser.parse(await Bun.file(filePath).text());
   const companion = enhancedLrcPath(filePath);
   if (companion === filePath || !(await Bun.file(companion).exists())) return doc;
@@ -17,7 +17,7 @@ export async function readLrcFile(filePath: string, parser: LrcParser): Promise<
  */
 export async function writeLrcFiles(
   filePath: string,
-  doc: LrcDocument,
+  doc: LyricsDoc,
   plainParser: LrcParser,
   enhancedParser: LrcParser,
 ): Promise<string[]> {

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import path from "node:path";
 import type { Draft, LrclibResult } from "../shared/api";
-import type { LrcDocument } from "../core/lrc-document";
+import type { LyricsDoc } from "../core/lyrics";
 import type { LyricsPublisher } from "../ports/lyrics-publisher";
 import type { LyricsSearch, LyricsSearchQuery } from "../ports/lyrics-search";
 import { q, startTestApp, wavBytes, type TestApp } from "./test-helpers";
@@ -27,12 +27,12 @@ const search: LyricsSearch = {
   },
 };
 
-const published: { doc: LrcDocument; ms: number }[] = [];
+const published: { doc: LyricsDoc; ms: number }[] = [];
 const publisher: LyricsPublisher = {
   name: "fake",
   async publish(doc, ms) {
     published.push({ doc, ms });
-    return doc.lines.length ? { success: true } : { success: false, error: "Nothing to publish" };
+    return doc.groups.length ? { success: true } : { success: false, error: "Nothing to publish" };
   },
 };
 
@@ -62,10 +62,13 @@ describe("LRCLIB routes", () => {
   });
 
   test("publish marks the draft published on success only", async () => {
-    const doc: LrcDocument = { metadata: { tool: "x" }, lines: [{ timestamp: 0, text: "Hi" }] };
+    const doc: LyricsDoc = {
+      metadata: { tool: "https://github.com/txssu/lrcgen" },
+      groups: [{ id: "g1", labels: [], words: [{ id: "w1", text: "Hi", start: 0, end: null }] }],
+    };
     const failed = await t.api("/api/lrclib/publish", {
       method: "POST",
-      json: { draftId: draft.id, doc: { ...doc, lines: [] }, durationMs: 1000 },
+      json: { draftId: draft.id, doc: { ...doc, groups: [] }, durationMs: 1000 },
     });
     expect(await failed.json()).toEqual({ success: false, error: "Nothing to publish" });
     expect(((await (await t.api(`/api/drafts/${draft.id}`)).json()) as Draft).publishedAt).toBeNull();

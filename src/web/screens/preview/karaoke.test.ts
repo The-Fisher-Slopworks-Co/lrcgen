@@ -1,28 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import type { LrcDocument, LrcLine } from "../../../core/lrc-document";
-import { currentLineAt, fillBackground, jumpBase, jumpTarget, stageLines, wordFills } from "./karaoke";
+import { groupStart, type LyricsDoc } from "../../../core/lyrics";
+import { doc as build, group } from "../../../core/testing";
+import { currentLineAt, fillBackground, jumpBase, jumpTarget, overlaysAt, stageLines, wordFills } from "./karaoke";
 
-const words: LrcLine = {
-  timestamp: 1000,
-  text: "Shine, shine, while",
-  words: [
-    { start: 1000, text: "Shine, " },
-    { start: 2000, text: "shine, " },
-    { start: 3000, text: "while" },
-  ],
-  end: 4000,
-};
-const doc: LrcDocument = {
-  metadata: { tool: "t" },
-  lines: [words, { timestamp: null, text: "" }, { timestamp: 5000, text: "(ooh)" }, { timestamp: 7000, text: "Last" }],
-};
+const words = group("Shine, shine, while", [1000, 2000, 3000], [null, null, 4000]);
+const doc: LyricsDoc = build(words, { id: "", labels: [], words: [] }, group("Middle", [5000]), group("ooh", [5200], [5800], ["backing"]), group("Last", [7000]));
 
 describe("stage lines", () => {
-  test("three lines: previous, current, next, skipping empty lines", () => {
+  test("three lines: previous, current, next, skipping empty and labelled groups", () => {
     expect(stageLines(doc, 2, 3)).toEqual([
       { role: "prev", index: 0 },
       { role: "current", index: 2 },
-      { role: "next", index: 3 },
+      { role: "next", index: 4 },
     ]);
   });
 
@@ -37,10 +26,16 @@ describe("stage lines", () => {
 
   test("one and two lines", () => {
     expect(stageLines(doc, 0, 1)).toEqual([{ role: "current", index: 0 }]);
-    expect(stageLines(doc, 3, 2)).toEqual([
-      { role: "current", index: 3 },
+    expect(stageLines(doc, 4, 2)).toEqual([
+      { role: "current", index: 4 },
       { role: "next", index: -1 },
     ]);
+  });
+
+  test("a backing vocal is not the current line; it shows while it sounds", () => {
+    expect(currentLineAt(doc, 5500)).toBe(2);
+    expect(overlaysAt(doc, 5500, 60_000)).toEqual([3]);
+    expect(overlaysAt(doc, 5900, 60_000)).toEqual([]);
   });
 });
 
@@ -53,7 +48,7 @@ describe("fills", () => {
   test("by line, or without word timings, the whole line lights at its start", () => {
     expect(wordFills(words, 1500, "line", null)).toEqual([1, 1, 1]);
     expect(wordFills(words, 900, "line", null)).toEqual([0, 0, 0]);
-    expect(wordFills(doc.lines[3]!, 7100, "word", null)).toEqual([1]);
+    expect(wordFills(doc.groups[4]!, 7100, "word", null)).toEqual([1]);
   });
 
   test("gradient", () => {
@@ -62,34 +57,25 @@ describe("fills", () => {
 });
 
 describe("jumping between lines", () => {
-  test("skips untimed and empty lines", () => {
+  test("skips untimed, empty and labelled groups", () => {
     expect(jumpTarget(doc, 0, 1)).toBe(2);
+    expect(jumpTarget(doc, 2, 1)).toBe(4);
     expect(jumpTarget(doc, 2, -1)).toBe(0);
     expect(jumpTarget(doc, -1, 1)).toBe(0);
-    expect(jumpTarget(doc, 3, 1)).toBeNull();
+    expect(jumpTarget(doc, 4, 1)).toBeNull();
   });
 });
 
 describe("↑/↓ with lines out of order", () => {
   // Line 4 (index 3) at 17.80, line 5 (index 4) at 16.94: at 17.80 the stage shows index 4.
-  const ooo: LrcDocument = {
-    metadata: { tool: "t" },
-    lines: [
-      { timestamp: 10000, text: "a" },
-      { timestamp: 12000, text: "b" },
-      { timestamp: 14000, text: "c" },
-      { timestamp: 17800, text: "d" },
-      { timestamp: 16940, text: "e" },
-      { timestamp: 20000, text: "f" },
-    ],
-  };
+  const ooo = build(...[10000, 12000, 14000, 17800, 16940, 20000].map((t, i) => group("abcdef"[i]!, [t])));
 
   test("repeated ↑ keeps going up instead of landing on the same line", () => {
     let cursor = null as { index: number; at: number } | null;
     let ms = 18500;
     const up = () => {
       const target = jumpTarget(ooo, jumpBase(ooo, ms, cursor), -1)!;
-      ms = ooo.lines[target]!.timestamp!;
+      ms = groupStart(ooo.groups[target]!)!;
       cursor = { index: target, at: ms };
       return target;
     };
@@ -100,7 +86,7 @@ describe("↑/↓ with lines out of order", () => {
     const cursor = { index: 3, at: 17800 };
     expect(jumpBase(ooo, 17900, cursor)).toBe(3);
     expect(jumpBase(ooo, 20100, cursor)).toBe(5);
-    const retimed = { ...ooo, lines: ooo.lines.map((l, i) => (i === 3 ? { ...l, timestamp: 18000 } : l)) };
+    const retimed = { ...ooo, groups: ooo.groups.map((g, i) => (i === 3 ? { ...g, words: g.words.map((w) => ({ ...w, start: 18000 })) } : g)) };
     expect(jumpBase(retimed, 18100, cursor)).toBe(currentLineAt(retimed, 18100));
     expect(jumpBase(ooo, 18500, null)).toBe(4);
   });

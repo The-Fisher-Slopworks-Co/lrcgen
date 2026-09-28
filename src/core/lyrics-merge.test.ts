@@ -1,11 +1,8 @@
-import { test, expect, describe } from "bun:test";
-import { createDocument, linesFromText } from "./lrc-document";
-import type { LrcDocument, LrcLine } from "./lrc-document";
-import { replaceLyrics, adoptWordTimings, applyAlignment } from "./lyrics-merge";
-
-function docOf(...lines: LrcLine[]): LrcDocument {
-  return { ...createDocument({ title: "Song" }), lines };
-}
+import { describe, expect, test } from "bun:test";
+import { groupsFromLrcLines, type LrcLine } from "./lrc-lines";
+import { groupsFromText, groupText, setMetadata } from "./lyrics";
+import { adoptWordTimings, applyAlignment, replaceLyrics } from "./lyrics-merge";
+import { doc, docOf, endsOf, group, startsOf, textsOf } from "./testing";
 
 const wordTimed: LrcLine = {
   timestamp: 1000,
@@ -18,44 +15,44 @@ const wordTimed: LrcLine = {
   end: 2500,
 };
 
+const song = (...lines: LrcLine[]) => setMetadata(docOf(...lines), { title: "Song" });
+const lines = (...l: LrcLine[]) => groupsFromLrcLines(l);
+
 describe("replaceLyrics", () => {
   test("keeps line and word timings for lines that still match, in order", () => {
-    const doc = docOf(
-      { timestamp: 500, text: "Intro" },
-      wordTimed,
-      { timestamp: 3000, text: "Old line" },
-    );
-    const { doc: next, kept } = replaceLyrics(doc, linesFromText("Intro\nNew line\nNever gonna give"));
+    const d = song({ timestamp: 500, text: "Intro" }, wordTimed, { timestamp: 3000, text: "Old line" });
+    const { doc: next, kept } = replaceLyrics(d, groupsFromText("Intro\nNew line\nNever gonna give"));
     expect(kept).toBe(2);
     expect(next.metadata.title).toBe("Song");
-    expect(next.lines).toEqual([
-      { timestamp: 500, text: "Intro" },
-      { timestamp: null, text: "New line" },
-      wordTimed,
-    ]);
+    expect(next.groups.map(groupText)).toEqual(["Intro", "New line", "Never gonna give"]);
+    expect(startsOf(next.groups[0])).toEqual([500]);
+    expect(startsOf(next.groups[1])).toEqual([null, null]);
+    expect(next.groups[2]).toBe(d.groups[1]!);
   });
 
-  test("compares trimmed text and takes the new text", () => {
-    const { doc, kept } = replaceLyrics(docOf({ timestamp: 500, text: " Hello " }), [{ timestamp: null, text: "Hello" }]);
-    expect(kept).toBe(1);
-    expect(doc.lines[0]).toEqual({ timestamp: 500, text: "Hello" });
+  test("ids stay unique: matched groups keep theirs, new ones get fresh ones", () => {
+    const d = song({ timestamp: 500, text: "Intro" });
+    const { doc: next } = replaceLyrics(d, groupsFromText("New\nIntro"));
+    expect(next.groups[1]!.id).toBe(d.groups[0]!.id);
+    const ids = next.groups.flatMap((g) => [g.id, ...g.words.map((w) => w.id)]);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   test("matches only forward: a repeated line takes the next occurrence", () => {
-    const doc = docOf({ timestamp: 1000, text: "La" }, { timestamp: 2000, text: "Mid" }, { timestamp: 3000, text: "La" });
-    const { doc: next } = replaceLyrics(doc, linesFromText("La\nLa\nMid"));
-    expect(next.lines.map((l) => l.timestamp)).toEqual([1000, 3000, null]);
+    const d = song({ timestamp: 1000, text: "La" }, { timestamp: 2000, text: "Mid" }, { timestamp: 3000, text: "La" });
+    const { doc: next } = replaceLyrics(d, groupsFromText("La\nLa\nMid"));
+    expect(next.groups.map((g) => startsOf(g)[0])).toEqual([1000, 3000, null]);
   });
 
   test("untimed old lines keep nothing and are not counted; new timings stay", () => {
-    const { doc, kept } = replaceLyrics(docOf({ timestamp: null, text: "Hello" }), [{ timestamp: 4000, text: "Hello" }]);
+    const { doc, kept } = replaceLyrics(song({ timestamp: null, text: "Hello" }), lines({ timestamp: 4000, text: "Hello" }));
     expect(kept).toBe(0);
-    expect(doc.lines[0]).toEqual({ timestamp: 4000, text: "Hello" });
+    expect(startsOf(doc.groups[0])).toEqual([4000]);
   });
 
   test("old timings win over the new lines' own", () => {
-    const { doc } = replaceLyrics(docOf({ timestamp: 1000, text: "Hello" }), [{ timestamp: 4000, text: "Hello" }]);
-    expect(doc.lines[0]!.timestamp).toBe(1000);
+    const { doc } = replaceLyrics(song({ timestamp: 1000, text: "Hello" }), lines({ timestamp: 4000, text: "Hello" }));
+    expect(startsOf(doc.groups[0])).toEqual([1000]);
   });
 
   test("matches despite case and punctuation, keeping word timings when the parts still line up", () => {
@@ -65,121 +62,122 @@ describe("replaceLyrics", () => {
       words: [{ start: 1000, text: "Я " }, { start: 1200, text: "не " }, { start: 1400, text: "могу " }, { start: 1800, text: "иначе" }],
       end: 2500,
     };
-    const { doc, kept } = replaceLyrics(docOf(old), [{ timestamp: null, text: "я не могу иначе," }]);
+    const { doc, kept } = replaceLyrics(song(old), groupsFromText("я не могу иначе,"));
     expect(kept).toBe(1);
-    expect(doc.lines[0]).toEqual({
-      timestamp: 1000,
-      text: "я не могу иначе,",
-      words: [{ start: 1000, text: "я " }, { start: 1200, text: "не " }, { start: 1400, text: "могу " }, { start: 1800, text: "иначе," }],
-      end: 2500,
-    });
+    expect(textsOf(doc.groups[0])).toEqual(["я", "не", "могу", "иначе,"]);
+    expect(startsOf(doc.groups[0])).toEqual([1000, 1200, 1400, 1800]);
+    expect(endsOf(doc.groups[0])).toEqual([null, null, null, 2500]);
   });
 
   test("keeps joined words when the text changes but the parts line up", () => {
     const joined: LrcLine = { ...wordTimed, words: [{ start: 1000, text: "Never gonna " }, { start: 2000, text: "give" }] };
-    const { doc } = replaceLyrics(docOf(joined), [{ timestamp: null, text: "Never, gonna give!" }]);
-    expect(doc.lines[0]!.words).toEqual([{ start: 1000, text: "Never, gonna " }, { start: 2000, text: "give!" }]);
+    const { doc } = replaceLyrics(song(joined), groupsFromText("Never, gonna give!"));
+    expect(textsOf(doc.groups[0])).toEqual(["Never, gonna", "give!"]);
+    expect(startsOf(doc.groups[0])).toEqual([1000, 2000]);
   });
 
   test("keeps only the line start when the number of parts differs", () => {
-    const { doc, kept } = replaceLyrics(docOf(wordTimed), [{ timestamp: null, text: "Never-gonna give" }]);
+    const { doc, kept } = replaceLyrics(song(wordTimed), groupsFromText("Never-gonna give"));
     expect(kept).toBe(1);
-    expect(doc.lines[0]).toEqual({ timestamp: 1000, text: "Never-gonna give" });
+    expect(textsOf(doc.groups[0])).toEqual(["Never-gonna", "give"]);
+    expect(startsOf(doc.groups[0])).toEqual([1000, null]);
   });
 
   test("a line timing survives a punctuation change", () => {
-    const { doc, kept } = replaceLyrics(docOf({ timestamp: 500, text: "Don't stop" }), [{ timestamp: null, text: "don’t stop..." }]);
+    const { doc, kept } = replaceLyrics(song({ timestamp: 500, text: "Don't stop" }), groupsFromText("don’t stop..."));
     expect(kept).toBe(1);
-    expect(doc.lines[0]).toEqual({ timestamp: 500, text: "don’t stop..." });
+    expect(groupText(doc.groups[0]!)).toBe("don’t stop...");
+    expect(startsOf(doc.groups[0])[0]).toBe(500);
   });
 
-  test("empty lines never match", () => {
-    const doc = docOf({ timestamp: 1000, text: "" }, { timestamp: 2000, text: "A" });
-    const { doc: next, kept } = replaceLyrics(doc, [{ timestamp: null, text: "" }, { timestamp: null, text: "A" }]);
-    expect(kept).toBe(1);
-    expect(next.lines.map((l) => l.timestamp)).toEqual([null, 2000]);
+  test("labels: the old group's win; new ones come in with new groups", () => {
+    const old = replaceLyrics(song({ timestamp: 500, text: "(ooh)" }), groupsFromText("ooh")).doc;
+    expect(old.groups[0]!.labels).toEqual(["backing"]);
+    const fresh = replaceLyrics(song({ timestamp: 500, text: "ooh" }), lines({ timestamp: null, text: "(ooh)" })).doc;
+    expect(fresh.groups[0]!.labels).toEqual(["backing"]);
   });
 });
 
 describe("adoptWordTimings", () => {
-  const source: LrcLine[] = [
-    { timestamp: 900, text: "never gonna give", words: [{ start: 900, text: "never " }, { start: 1400, text: "gonna " }, { start: 1900, text: "give" }], end: 2400 },
+  const source = lines(
+    { timestamp: 900, text: "never gonna give", words: [{ start: 900, end: 1300, text: "never " }, { start: 1400, text: "gonna " }, { start: 1900, text: "give" }], end: 2400 },
     { timestamp: 3000, text: "dont stop", words: [{ start: 3000, text: "dont " }, { start: 3400, text: "stop" }], end: 3900 },
-  ];
+  );
 
-  test("copies word timings, line start and end, keeping the document's text", () => {
-    const doc = docOf({ timestamp: 1000, text: "Never gonna give!" }, { timestamp: null, text: "Don’t stop" });
-    const { doc: next, adopted } = adoptWordTimings(doc, source);
+  test("copies word starts, keeping the document's text and ids; no word gets an end", () => {
+    const d = song({ timestamp: 1000, text: "Never gonna give!" }, { timestamp: null, text: "Don’t stop" });
+    const { doc: next, adopted } = adoptWordTimings(d, source);
     expect(adopted).toBe(2);
-    expect(next.lines[0]).toEqual({
-      timestamp: 900,
-      text: "Never gonna give!",
-      words: [{ start: 900, text: "Never " }, { start: 1400, text: "gonna " }, { start: 1900, text: "give!" }],
-      end: 2400,
-    });
-    expect(next.lines[1]!.text).toBe("Don’t stop");
-    expect(next.lines[1]!.words).toEqual([{ start: 3000, text: "Don’t " }, { start: 3400, text: "stop" }]);
-  });
-
-  test("takes the source words as they are when the text is identical", () => {
-    const joined: LrcLine = { timestamp: 900, text: "Hi there you", words: [{ start: 900, text: "Hi there " }, { start: 1500, text: "you" }] };
-    const { doc } = adoptWordTimings(docOf({ timestamp: null, text: "Hi there you" }), [joined]);
-    expect(doc.lines[0]!.words).toEqual(joined.words);
+    expect(textsOf(next.groups[0])).toEqual(["Never", "gonna", "give!"]);
+    expect(startsOf(next.groups[0])).toEqual([900, 1400, 1900]);
+    expect(endsOf(next.groups[0])).toEqual([null, null, null]);
+    expect(next.groups[0]!.words.map((w) => w.id)).toEqual(d.groups[0]!.words.map((w) => w.id));
+    expect(textsOf(next.groups[1])).toEqual(["Don’t", "stop"]);
+    expect(startsOf(next.groups[1])).toEqual([3000, 3400]);
   });
 
   test("keeps the document's joined words", () => {
-    const line: LrcLine = { timestamp: 1000, text: "Never, gonna give", words: [{ start: 1000, text: "Never, gonna " }, { start: 2000, text: "give" }] };
-    const { doc } = adoptWordTimings(docOf(line), source);
-    expect(doc.lines[0]!.words).toEqual([{ start: 900, text: "Never, gonna " }, { start: 1900, text: "give" }]);
+    const joined: LrcLine = { timestamp: 1000, text: "Never, gonna give", words: [{ start: 1000, text: "Never, gonna " }, { start: 2000, text: "give" }] };
+    const { doc } = adoptWordTimings(song(joined), source);
+    expect(textsOf(doc.groups[0])).toEqual(["Never, gonna", "give"]);
+    expect(startsOf(doc.groups[0])).toEqual([900, 1900]);
+    expect(endsOf(doc.groups[0])).toEqual([null, null]);
+  });
+
+  test("the words it times lose the ends they had", () => {
+    const d = setMetadata(doc(group("dont stop", [2900, 3300], [3200, 3800])), { title: "Song" });
+    const { doc: next } = adoptWordTimings(d, source);
+    expect(startsOf(next.groups[0])).toEqual([3000, 3400]);
+    expect(endsOf(next.groups[0])).toEqual([null, null]);
   });
 
   test("ignores case, quotes and punctuation in Russian too", () => {
-    const ru: LrcLine = { timestamp: 500, text: "ещё раз", words: [{ start: 500, text: "ещё " }, { start: 900, text: "раз" }] };
-    const { doc, adopted } = adoptWordTimings(docOf({ timestamp: null, text: "«Еще — раз!»" }), [ru]);
+    const ru = lines({ timestamp: 500, text: "ещё раз", words: [{ start: 500, text: "ещё " }, { start: 900, text: "раз" }] });
+    const { doc, adopted } = adoptWordTimings(song({ timestamp: null, text: "«Еще — раз!»" }), ru);
     expect(adopted).toBe(1);
-    expect(doc.lines[0]!.words).toEqual([{ start: 500, text: "«Еще " }, { start: null, text: "— " }, { start: 900, text: "раз!»" }]);
+    expect(textsOf(doc.groups[0])).toEqual(["«Еще", "—", "раз!»"]);
+    expect(startsOf(doc.groups[0])).toEqual([500, null, 900]);
   });
 
   test("skips lines whose words don't line up, and lines without word timings", () => {
-    const doc = docOf({ timestamp: 1000, text: "Never-gonna give" }, { timestamp: 2000, text: "dont stop" });
-    const lineOnly: LrcLine[] = [source[0]!, { timestamp: 3000, text: "dont stop" }];
-    const { doc: next, adopted } = adoptWordTimings(doc, lineOnly);
+    const d = song({ timestamp: 1000, text: "Never-gonna give" }, { timestamp: 2000, text: "dont stop" });
+    const { doc: next, adopted } = adoptWordTimings(d, [source[0]!, ...lines({ timestamp: 3000, text: "dont stop" })]);
     expect(adopted).toBe(0);
-    expect(next.lines).toEqual(doc.lines);
+    expect(next.groups).toEqual(d.groups);
   });
 
   test("matches in order and leaves unmatched lines alone", () => {
-    const doc = docOf({ timestamp: 100, text: "Intro" }, { timestamp: null, text: "dont stop" }, { timestamp: null, text: "never gonna give" });
-    const { doc: next, adopted } = adoptWordTimings(doc, source);
+    const d = song({ timestamp: 100, text: "Intro" }, { timestamp: null, text: "dont stop" }, { timestamp: null, text: "never gonna give" });
+    const { doc: next, adopted } = adoptWordTimings(d, source);
     expect(adopted).toBe(1);
-    expect(next.lines[0]).toEqual({ timestamp: 100, text: "Intro" });
-    expect(next.lines[1]!.timestamp).toBe(3000);
-    expect(next.lines[2]).toEqual({ timestamp: null, text: "never gonna give" });
+    expect(next.groups[0]).toBe(d.groups[0]!);
+    expect(startsOf(next.groups[1])).toEqual([3000, 3400]);
+    expect(next.groups[2]).toBe(d.groups[2]!);
   });
 });
 
 describe("applyAlignment", () => {
-  test("takes line starts and word timings, keeping the document's text and leaving unmatched lines alone", () => {
-    const doc = docOf(
+  test("takes starts and word timings, keeping the document's text and leaving unmatched lines alone", () => {
+    const d = song(
       { timestamp: 100, text: "Never gonna give" },
-      { timestamp: null, text: "" },
       { timestamp: null, text: "[Chorus]" },
       wordTimed,
       { timestamp: 7000, text: "Edited while syncing" },
     );
-    const source: LrcLine[] = [
-      { timestamp: 900, text: "Never gonna give", words: [{ start: 900, text: "Never " }, { start: 1400, text: "gonna " }, { start: 1900, text: "give" }], end: 2400 },
+    const source = lines(
+      { timestamp: 900, text: "Never gonna give", words: [{ start: 900, end: 1200, text: "Never " }, { start: 1400, text: "gonna " }, { start: 1900, text: "give" }], end: 2400 },
       { timestamp: null, text: "[Chorus]" },
       { timestamp: 3000, text: "Never gonna give" },
       { timestamp: 5000, text: "Original line" },
-    ];
-    const { doc: next, synced } = applyAlignment(doc, source);
+    );
+    const { doc: next, synced } = applyAlignment(d, source);
     expect(synced).toBe(2);
-    expect(next.lines[0]).toEqual(source[0]!);
-    expect(next.lines[1]).toEqual({ timestamp: null, text: "" });
-    expect(next.lines[2]).toEqual({ timestamp: null, text: "[Chorus]" });
+    expect(startsOf(next.groups[0])).toEqual([900, 1400, 1900]);
+    expect(endsOf(next.groups[0])).toEqual([null, null, null]);
+    expect(next.groups[1]).toBe(d.groups[1]!);
     // Only the start was found: the old word timings would no longer fit.
-    expect(next.lines[3]).toEqual({ timestamp: 3000, text: "Never gonna give" });
-    expect(next.lines[4]).toEqual({ timestamp: 7000, text: "Edited while syncing" });
+    expect(startsOf(next.groups[2])).toEqual([3000, null, null]);
+    expect(endsOf(next.groups[2])).toEqual([null, null, null]);
+    expect(next.groups[3]).toBe(d.groups[3]!);
   });
 });

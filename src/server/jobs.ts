@@ -86,7 +86,7 @@ export class JobManager {
         error: null,
         startedAt: this.now(),
         finishedAt: null,
-        lines: null,
+        groups: null,
       },
       lyrics: kind === "align" ? lyrics : undefined,
       controller: new AbortController(),
@@ -177,7 +177,7 @@ export class JobManager {
       if (kind === "transcribe") {
         await this.deps.transcripts.put({
           draftId,
-          lines: result.lines ?? [],
+          groups: result.groups ?? [],
           rawLyrics: result.rawLyrics ?? "",
           createdAt: this.now(),
         });
@@ -185,7 +185,7 @@ export class JobManager {
       this.finish(job, "done", null, {
         message: DONE_MESSAGES[kind],
         progress: 1,
-        lines: kind === "align" ? (result.lines ?? []) : null,
+        groups: kind === "align" ? (result.groups ?? []) : null,
       });
     } catch (e) {
       if (signal.aborted) return;

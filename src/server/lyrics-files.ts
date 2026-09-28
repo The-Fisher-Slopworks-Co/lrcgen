@@ -1,30 +1,32 @@
 import path from "node:path";
 import type { LyricsFileInfo, TimingLevel } from "../shared/api";
-import type { LrcDocument } from "../core/lrc-document";
+import type { LyricsDoc } from "../core/lyrics";
 import type { LrcParser } from "../ports/lrc-parser";
-import { createDocument, hasAnyWordTimings, linesFromText } from "../core/lrc-document";
+import { createDoc, groupsFromText, hasAnyWordTimings, isTimed } from "../core/lyrics";
+import { isLyricsFilePath, parseLyricsFile } from "../core/lyrics-file";
 import { readLrcFile } from "../adapters/lrc-files";
 
-/** Sidecar names checked next to an audio file, best first. */
+/** Sidecar names checked next to an audio file, best first: lrcgen's own file, then LRC, then plain text. */
 function sidecarNames(audioName: string): string[] {
   const base = audioName.slice(0, audioName.length - path.extname(audioName).length);
-  return [`${base}.lrc`, `${base}.enhanced.lrc`, `${base}.txt`];
+  return [`${base}.lyrics.json`, `${base}.lrc`, `${base}.enhanced.lrc`, `${base}.txt`];
 }
 
 export function isLyricsPath(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
-  return ext === ".lrc" || ext === ".txt";
+  return ext === ".lrc" || ext === ".txt" || isLyricsFilePath(filePath);
 }
 
-export function timingLevel(doc: LrcDocument): TimingLevel {
+export function timingLevel(doc: LyricsDoc): TimingLevel {
   if (hasAnyWordTimings(doc)) return "words";
-  return doc.lines.some((l) => l.timestamp !== null) ? "lines" : "none";
+  return doc.groups.some(isTimed) ? "lines" : "none";
 }
 
-/** An .lrc (with word timings merged in from its "*.enhanced.lrc" companion) or a plain .txt. */
-export async function readLyricsFile(filePath: string, parser: LrcParser): Promise<LrcDocument> {
+/** A ".lyrics.json", an .lrc (with word timings merged in from its "*.enhanced.lrc" companion) or a plain .txt. */
+export async function readLyricsFile(filePath: string, parser: LrcParser): Promise<LyricsDoc> {
+  if (isLyricsFilePath(filePath)) return parseLyricsFile(await Bun.file(filePath).text());
   if (path.extname(filePath).toLowerCase() === ".txt") {
-    return { ...createDocument(), lines: linesFromText(await Bun.file(filePath).text()) };
+    return createDoc({}, groupsFromText(await Bun.file(filePath).text()));
   }
   return readLrcFile(filePath, parser);
 }
@@ -48,9 +50,9 @@ export async function findLyricsFile(
       return {
         path: filePath,
         name,
-        format: name.endsWith(".txt") ? "txt" : "lrc",
+        format: isLyricsFilePath(name) ? "lyrics" : name.endsWith(".txt") ? "txt" : "lrc",
         timing: timingLevel(doc),
-        lineCount: doc.lines.length,
+        lineCount: doc.groups.length,
       };
     } catch {
       continue;

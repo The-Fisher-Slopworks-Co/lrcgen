@@ -2,7 +2,7 @@
 // Every route the server answers is listed here with its request and response shapes.
 // Errors come back as a non-2xx status with an `ApiError` body.
 
-import type { LrcDocument, LrcLine } from "../core/lrc-document";
+import type { Group, LyricsDoc } from "../core/lyrics";
 import type { TranscriptionSettings } from "../core/settings-defaults";
 import type { TranscribeStage } from "../core/transcribe-protocol";
 
@@ -57,7 +57,8 @@ export type TimingLevel = "none" | "lines" | "words";
 export interface LyricsFileInfo {
   path: string;
   name: string;
-  format: "lrc" | "txt";
+  /** "lyrics": lrcgen's own ".lyrics.json". */
+  format: "lyrics" | "lrc" | "txt";
   timing: TimingLevel;
   lineCount: number;
 }
@@ -90,10 +91,13 @@ export interface TrackInfo {
 // GET /api/vocals?path=<audio file>       →  the separated vocal stem (404 if none), with Range support.
 //                                            Sample-aligned with the audio file.
 
-/** GET /api/lyrics-file?path=<.lrc or .txt>  → the file parsed, word timings merged in from a "*.enhanced.lrc" companion. */
+/**
+ * GET /api/lyrics-file?path=<.lyrics.json, .lrc or .txt>  → the file parsed; for an .lrc, word timings merged in from
+ * a "*.enhanced.lrc" companion.
+ */
 export interface LyricsFileContent {
   path: string;
-  doc: LrcDocument;
+  doc: LyricsDoc;
   timing: TimingLevel;
 }
 
@@ -107,9 +111,12 @@ export interface Draft {
   /** Stable id derived from the audio path. */
   id: string;
   audioPath: string;
-  doc: LrcDocument;
+  doc: LyricsDoc;
   step: Step;
-  /** Where "Save next to the track" writes; defaults to `<audio base name>.lrc` beside the audio. */
+  /**
+   * Where "Save next to the track" writes the LRC; the lyrics file goes next to it ("Song.lrc" → "Song.lyrics.json").
+   * Defaults to `<audio base name>.lrc` beside the audio.
+   */
   lrcPath: string;
   /** Flag ids the user answered "It's intended" to. */
   dismissedFlags: string[];
@@ -169,7 +176,7 @@ export interface LrclibResult {
 export interface PublishRequest {
   draftId: string;
   /** What to publish; the server does not read the draft file for it. */
-  doc: LrcDocument;
+  doc: LyricsDoc;
   durationMs: number;
 }
 export interface PublishResponse {
@@ -181,19 +188,23 @@ export interface PublishResponse {
 
 /** GET /api/save/check?path=<.lrc>  →  which of the files a save would write already exist */
 export interface SaveCheck {
-  /** Files the save writes: the .lrc, plus the ".enhanced.lrc" companion for the enhanced format. */
+  /** The lyrics file ("Song.lyrics.json"), written on every save. */
+  lyricsPath: string;
+  /** The LRC files each choice writes besides it: the .lrc, plus the ".enhanced.lrc" companion for the enhanced format. */
   targets: { format: SaveFormat; paths: string[] }[];
   existing: string[];
 }
 
-export type SaveFormat = "enhanced" | "lines";
+/** What LRC goes next to the lyrics file: with word timings, lines only, or none. */
+export type SaveFormat = "enhanced" | "lines" | "none";
 
 /** POST /api/save */
 export interface SaveRequest {
   draftId: string;
+  /** The .lrc path; the lyrics file goes next to it. */
   path: string;
   format: SaveFormat;
-  doc: LrcDocument;
+  doc: LyricsDoc;
 }
 export interface SaveResponse {
   written: string[];
@@ -243,8 +254,8 @@ export interface JobState {
   error: string | null;
   startedAt: number;
   finishedAt: number | null;
-  /** A finished "align" job's lines, with the timings found; null otherwise. */
-  lines: LrcLine[] | null;
+  /** A finished "align" job's groups, with the timings found; null otherwise. */
+  groups: Group[] | null;
 }
 
 // GET    /api/jobs[?audioPath=]  →  JobState[] (running and recently finished)
@@ -258,7 +269,7 @@ export type JobEvent =
 /** GET /api/transcripts/:draftId  →  the last finished transcription for that draft (404 if none). */
 export interface Transcript {
   draftId: string;
-  lines: LrcLine[];
+  groups: Group[];
   rawLyrics: string;
   createdAt: number;
 }

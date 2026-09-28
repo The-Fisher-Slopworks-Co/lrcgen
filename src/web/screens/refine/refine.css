@@ -12,7 +12,7 @@
   flex-grow: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: 280px minmax(0, 1fr) 330px;
 }
 
 .refine-main {
@@ -41,9 +41,10 @@
   white-space: nowrap;
 }
 .refine-line-text {
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: 80px;
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -58,8 +59,8 @@
   flex-shrink: 0;
 }
 .refine-lane-toggle {
-  height: 32px;
-  padding: 0 12px;
+  height: 30px;
+  padding: 0 10px;
   border-radius: 8px;
   border: 1px solid var(--border-2);
   background: transparent;
@@ -103,7 +104,7 @@
   color: var(--text-1);
 }
 .refine-zoom span {
-  min-width: 66px;
+  min-width: 60px;
   text-align: center;
   font-size: 12px;
   color: var(--text-3);
@@ -137,6 +138,9 @@
 .refine-lane-labels .vocals {
   color: var(--vocals);
 }
+.refine-lane-labels .labelled {
+  color: var(--label-2);
+}
 .refine-lanes {
   position: relative;
   flex-grow: 1;
@@ -156,36 +160,81 @@
   z-index: 2;
 }
 
+/* A group's band behind its words, with its number and labels on top. --c is the label's hue. */
+.refine-band {
+  position: absolute;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--c) 28%, transparent);
+  background: color-mix(in srgb, var(--c) 6%, transparent);
+  cursor: pointer;
+  z-index: 1;
+}
+.refine-band:hover {
+  border-color: color-mix(in srgb, var(--c) 50%, transparent);
+}
+.refine-band.selected {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.refine-band.dim {
+  opacity: 0.3;
+}
+.refine-band .tag {
+  position: absolute;
+  top: 2px;
+  left: 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.refine-band .tag .num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-5);
+}
+.refine-band.selected .tag .num {
+  color: var(--accent);
+}
+
+/* A word: its left edge is where it starts, its right edge where it ends. */
 .refine-block {
   position: absolute;
-  height: 48px;
-  padding: 5px 8px 5px 14px;
+  height: 30px;
   border-radius: 6px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 2px;
-  overflow: hidden;
-  cursor: grab;
-  text-align: left;
   background: var(--selected);
   border: 1px solid var(--border-4);
+  box-shadow: inset 3px 0 0 var(--c);
   color: var(--text-1);
-  z-index: 1;
+  cursor: grab;
+  z-index: 2;
 }
 .refine-block:hover {
   border-color: var(--muted-1);
 }
-.refine-block .grip {
+/* No end of its own: it fades out towards the next word. */
+.refine-block.derived {
+  border-right-color: transparent;
+  background: linear-gradient(90deg, var(--selected) 55%, transparent);
+}
+.refine-block .h {
   position: absolute;
-  left: 4px;
-  top: 9px;
-  width: 4px;
-  height: 28px;
-  border-radius: 2px;
-  background: var(--muted-1);
+  top: -1px;
+  bottom: -1px;
+  width: 8px;
   cursor: ew-resize;
+  z-index: 1;
+}
+.refine-block .h.l {
+  left: -2px;
+}
+.refine-block .h.r {
+  right: -3px;
+}
+.refine-block:hover .h,
+.refine-block.selected .h {
+  background: linear-gradient(90deg, transparent 3px, color-mix(in srgb, var(--accent) 70%, transparent) 3px 5px, transparent 5px);
 }
 .refine-block .split {
   position: absolute;
@@ -195,64 +244,73 @@
   border-left: 1px dashed var(--text-5);
 }
 .refine-block .word {
+  position: absolute;
+  left: 8px;
+  top: 0;
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 14px;
+  gap: 4px;
+  height: 28px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
 }
 .refine-block .part {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 .refine-block .flag-icon {
   color: var(--warn);
   flex-shrink: 0;
 }
-.refine-block .time {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-4);
+.refine-block.sung {
+  background: color-mix(in srgb, var(--accent) 22%, var(--selected));
 }
 .refine-block.selected {
   background: var(--accent-tint);
   border: 1.5px solid var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
-.refine-block.selected .word,
-.refine-block.selected .time {
-  color: var(--accent);
+.refine-block.selected.derived {
+  border-right-color: transparent;
+  background: linear-gradient(90deg, var(--accent-tint) 55%, transparent);
 }
-.refine-block.selected .grip {
-  background: var(--accent);
+.refine-block.selected .word {
+  color: var(--accent-hover);
+}
+.refine-block.picked {
+  border: 1.5px dashed var(--accent);
 }
 .refine-block.flagged {
-  background: var(--warn-bg);
   border-color: var(--warn);
 }
-.refine-block.flagged .time {
-  color: var(--warn);
-}
-.refine-block.flagged .grip {
-  background: var(--warn);
-}
-.refine-block.selected.flagged {
-  border-color: var(--accent);
+.refine-block.dim {
+  opacity: 0.3;
 }
 .refine-block.dragging {
   cursor: grabbing;
   z-index: 3;
 }
-.refine-block.edge {
-  opacity: 0.4;
-  cursor: pointer;
-  border-style: dashed;
-  background: transparent;
-  padding-left: 10px;
+.refine-lanes.locked .refine-block,
+.refine-lanes.locked .refine-band {
+  cursor: default;
+  pointer-events: none;
 }
-.refine-block.edge:hover {
-  opacity: 0.7;
+.refine-drag-tip {
+  position: absolute;
+  z-index: 5;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--dialog);
+  border: 1px solid var(--border-4);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-1);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .refine-lane-hint {
@@ -367,60 +425,230 @@
   color: var(--text-5);
 }
 
-/* ---------------------------------------------------------------- context lines */
+/* ---------------------------------------------------------------- keys & retap */
 
-.refine-context {
+.refine-hints {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 6px 16px;
   flex-shrink: 0;
-  min-width: 0;
+  font-size: 12px;
+  color: var(--text-5);
 }
-.refine-context-line {
-  display: flex;
+.refine-hints > span {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  height: 40px;
-  max-width: 34%;
-  min-width: 0;
-  padding: 0 14px;
-  border-radius: 8px;
-  background: var(--dialog);
-  border: 1px solid var(--border-1);
-  color: var(--text-2);
-  font-size: 13px;
-  flex-shrink: 1;
+  gap: 4px;
+  white-space: nowrap;
 }
-.refine-context-line:hover {
-  border-color: var(--border-3);
+
+.refine-retap {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 16px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--accent-banner-border);
+  background: var(--accent-banner);
+}
+.refine-retap .words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.refine-retap .side {
+  display: flex;
+  gap: 6px;
+}
+.refine-retap-word {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-3);
+  background: var(--raised-2);
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-4);
+}
+.refine-retap-word small {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--muted-1);
+}
+.refine-retap-word.done {
   color: var(--text-1);
 }
-.refine-context-line.placeholder {
-  visibility: hidden;
-  width: 1px;
-  padding: 0;
+.refine-retap-word.next {
+  border-color: var(--accent);
+  color: var(--accent-hover);
 }
-.refine-context-line .no {
+.refine-retap-word.skipped {
+  opacity: 0.45;
+}
+.refine-retap .how {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.refine-retap .how > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ---------------------------------------------------------------- groups pane */
+
+.refine-groups {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-1);
+  background: var(--sidebar);
+}
+.refine-groups-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 18px 16px 10px;
+}
+.refine-groups-head .count {
   font-family: var(--font-mono);
-  color: var(--text-5);
+  font-size: 11px;
+  color: var(--muted-1);
 }
-.refine-context-line .text {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.refine-offer-card {
+  margin: 0 12px 10px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--accent-banner-border);
+  background: var(--accent-banner);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2);
 }
-.refine-context-hint {
-  flex: 1 1 0;
-  min-width: 0;
-  text-align: center;
+.refine-offer-card strong {
+  color: var(--accent-hover);
+  font-weight: 600;
+}
+.refine-offer-card .actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+}
+.refine-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+.refine-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 13px;
+  border: 1px solid var(--border-2);
+  background: transparent;
+  color: var(--text-4);
   font-size: 12px;
-  line-height: 1.4;
+}
+.refine-filter:hover {
+  color: var(--text-1);
+}
+.refine-filter[aria-pressed="true"] {
+  border-color: var(--border-4);
+  background: var(--selected);
+  color: var(--text-1);
+}
+.refine-filter .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.refine-filter .n {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted-1);
+}
+.refine-group-list {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 14px;
+}
+.refine-group-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 3px 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.refine-group-row:hover {
+  background: var(--raised-1);
+}
+.refine-group-row.selected {
+  background: var(--accent-row);
+  border-color: var(--accent-banner-border);
+}
+.refine-group-row .t {
+  padding-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted-1);
+}
+.refine-group-row.selected .t {
+  color: var(--accent);
+}
+.refine-group-row .text {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+.refine-group-row .text .flag-icon {
+  margin-left: 5px;
+  vertical-align: -2px;
+  color: var(--warn);
+}
+.refine-group-row.untimed .text {
   color: var(--text-5);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
+}
+.refine-group-row.labelled {
+  grid-template-columns: 54px 12px minmax(0, 1fr);
+}
+.refine-group-row.labelled .arrow {
+  padding-top: 1px;
+  font-size: 12px;
+  color: var(--muted-2);
+}
+.refine-group-row.labelled .text {
+  font-style: italic;
+  color: var(--text-4);
+}
+.refine-group-row.labelled .label-chips {
+  grid-column: 3;
+}
+.refine-group-empty {
+  padding: 10px;
+  font-size: 12.5px;
+  color: var(--text-5);
 }
 
 /* ---------------------------------------------------------------- inspector */
@@ -430,10 +658,10 @@
   overflow-y: auto;
   border-left: 1px solid var(--border-1);
   background: var(--panel);
-  padding: 20px 22px;
+  padding: 18px 20px 24px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 .refine-subject {
   display: flex;
@@ -443,7 +671,7 @@
 }
 .refine-subject-text {
   font-family: var(--font-display);
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 500;
   color: var(--accent);
   overflow-wrap: anywhere;
@@ -453,61 +681,215 @@
   font-size: 18px;
   color: var(--text-1);
 }
-.refine-start {
+.refine-times {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.refine-time {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.refine-time-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .refine-field-label {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-3);
 }
-.refine-start-input {
+.refine-time-tag {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--raised-3);
+  color: var(--text-4);
+  font-size: 11px;
+}
+.refine-time-clear {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-4);
+  font-size: 11.5px;
+  text-decoration: underline dotted;
+}
+.refine-time-clear:hover {
+  color: var(--text-1);
+}
+.refine-time-keys {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-5);
+}
+.refine-time-input {
   width: 100%;
-  height: 52px;
-  padding: 0 14px;
-  border-radius: 10px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 9px;
   border: 1px solid var(--border-strong);
   background: var(--raised-2);
   color: var(--text-1);
   font-family: var(--font-mono);
-  font-size: 26px;
+  font-size: 19px;
   font-weight: 500;
   letter-spacing: 0.02em;
 }
-.refine-start-input:focus-visible {
+.refine-time-input:focus-visible {
   outline: none;
   border-color: var(--accent);
 }
-.refine-start-input.bad {
+.refine-time-input.derived {
+  color: var(--text-5);
+  border-style: dashed;
+}
+.refine-time-input.bad {
   border-color: var(--warn);
 }
-.refine-nudges {
+.refine-time-nudges {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  gap: 5px;
 }
-.refine-nudge {
-  height: 44px;
-  border-radius: 8px;
+.refine-time-nudges button {
+  height: 30px;
+  border-radius: 7px;
   border: 1px solid var(--border-3);
   background: var(--raised-3);
-  color: var(--text-2);
+  color: var(--text-3);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11.5px;
 }
-.refine-nudge.fine {
+.refine-time-nudges button.fine {
   color: var(--text-1);
-  font-size: 13px;
   font-weight: 600;
 }
-.refine-nudge:hover:not(:disabled) {
+.refine-time-nudges button:hover:not(:disabled) {
   background: var(--selected);
   border-color: var(--border-4);
 }
-.refine-nudge:disabled {
+.refine-time-nudges button:disabled {
   opacity: 0.4;
+}
+.refine-time-meta {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-4);
+}
+.refine-picked {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--accent-border);
+  background: var(--accent-row);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.refine-picked strong {
+  color: var(--accent-hover);
+}
+.refine-labels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.refine-labels .label-chip {
+  height: 24px;
+  font-size: 12.5px;
+}
+.refine-label-remove {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  opacity: 0.7;
+  font-size: 14px;
+  line-height: 1;
+}
+.refine-label-remove:hover {
+  opacity: 1;
+}
+.refine-label-input {
+  flex: 1 1 120px;
+  min-width: 0;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: 1px dashed var(--border-4);
+  background: transparent;
+  font-size: 12.5px;
+}
+.refine-label-input:focus {
+  border-style: solid;
+  border-color: var(--accent);
+}
+.refine-label-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.refine-label-suggestions button {
+  padding: 0;
+  border: none;
+  background: none;
+  opacity: 0.75;
+}
+.refine-label-suggestions button:hover {
+  opacity: 1;
+}
+.refine-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-5);
+}
+.refine-export-tabs {
+  display: flex;
+  gap: 2px;
+  align-self: flex-start;
+  padding: 3px;
+  border-radius: 9px;
+  border: 1px solid var(--border-2);
+  background: var(--raised-1);
+}
+.refine-export-tabs button {
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-4);
+  font-size: 12px;
+  font-weight: 600;
+}
+.refine-export-tabs button[aria-pressed="true"] {
+  background: var(--raised-3);
+  color: var(--text-1);
+}
+.refine-export {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-1);
+  background: var(--well);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-3);
+  white-space: pre;
+}
+.refine-export.wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11.5px;
 }
 .refine-keyhint {
   display: flex;
@@ -538,7 +920,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 44px;
+  gap: 6px;
+  height: 38px;
   padding: 0 12px;
   border-radius: 8px;
   border: 1px solid var(--border-3);
@@ -549,6 +932,17 @@
 .refine-tool:hover:not(:disabled) {
   background: var(--selected);
   border-color: var(--border-4);
+}
+.refine-tool.accent {
+  border-color: var(--accent-border);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.refine-tool.accent kbd {
+  background: var(--accent-pressed);
+  border-color: var(--accent-border);
+  color: var(--on-accent);
 }
 .refine-tool.tone-accent[aria-pressed="true"] {
   border-color: var(--accent);

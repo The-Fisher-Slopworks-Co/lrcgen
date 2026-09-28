@@ -1,65 +1,56 @@
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { groupEnd, groupText, type LyricsDoc } from "../../core/lyrics";
+import { doc as docOfGroups, group, startsOf } from "../../core/testing";
 import { SimpleLrcParser } from "./simple-lrc-parser";
 
 const parser = new SimpleLrcParser();
+const texts = (doc: LyricsDoc) => doc.groups.map(groupText);
+const firstStarts = (doc: LyricsDoc) => doc.groups.map((g) => startsOf(g)[0] ?? null);
 
 describe("SimpleLrcParser.parse", () => {
-  test("parses lines with timestamps", () => {
-    const input = "[00:12.30]First line\n[00:15.80]Second line";
-    const doc = parser.parse(input);
-    expect(doc.lines).toEqual([
-      { timestamp: 12300, text: "First line" },
-      { timestamp: 15800, text: "Second line" },
-    ]);
+  test("parses lines with timestamps: the line start is the first word's", () => {
+    const doc = parser.parse("[00:12.30]First line\n[00:15.80]Second line");
+    expect(texts(doc)).toEqual(["First line", "Second line"]);
+    expect(firstStarts(doc)).toEqual([12300, 15800]);
+    expect(startsOf(doc.groups[0])).toEqual([12300, null]);
   });
   test("parses metadata tags", () => {
-    const input = "[ar:Radiohead]\n[ti:Creep]\n[al:Pablo Honey]\n[00:12.30]Line";
-    const doc = parser.parse(input);
+    const doc = parser.parse("[ar:Radiohead]\n[ti:Creep]\n[al:Pablo Honey]\n[00:12.30]Line");
     expect(doc.metadata.artist).toBe("Radiohead");
     expect(doc.metadata.title).toBe("Creep");
     expect(doc.metadata.album).toBe("Pablo Honey");
   });
-  test("preserves tool tag from parsed file", () => {
-    const input = "[tool:SomeTool]\n[00:01.00]Line";
-    const doc = parser.parse(input);
-    expect(doc.metadata.tool).toBe("https://github.com/txssu/lrcgen");
+  test("the tool tag is always lrcgen's", () => {
+    expect(parser.parse("[tool:SomeTool]\n[00:01.00]Line").metadata.tool).toBe("https://github.com/txssu/lrcgen");
   });
   test("parses lines without timestamps", () => {
-    const input = "Just plain text\nAnother line";
-    const doc = parser.parse(input);
-    expect(doc.lines).toEqual([
-      { timestamp: null, text: "Just plain text" },
-      { timestamp: null, text: "Another line" },
-    ]);
+    const doc = parser.parse("Just plain text\nAnother line");
+    expect(texts(doc)).toEqual(["Just plain text", "Another line"]);
+    expect(firstStarts(doc)).toEqual([null, null]);
   });
   test("handles empty input", () => {
     const doc = parser.parse("");
-    expect(doc.lines).toEqual([]);
+    expect(doc.groups).toEqual([]);
     expect(doc.metadata.tool).toBe("https://github.com/txssu/lrcgen");
   });
-  test("skips empty lines", () => {
-    const input = "[00:01.00]Line one\n\n[00:05.00]Line two";
-    const doc = parser.parse(input);
-    expect(doc.lines).toHaveLength(2);
+  test("an empty timed line ends the line before it", () => {
+    const doc = parser.parse("[00:01.00]Line one\n[00:03.00]\n\n[00:05.00]Line two");
+    expect(texts(doc)).toEqual(["Line one", "Line two"]);
+    expect(groupEnd(doc.groups[0]!)).toBe(3000);
   });
-  test("handles mixed metadata and lyrics", () => {
-    const input = "[ar:Muse]\n[00:01.00]Hello\n[00:05.00]World";
-    const doc = parser.parse(input);
-    expect(doc.metadata.artist).toBe("Muse");
-    expect(doc.lines).toHaveLength(2);
+  test("a line all in parentheses is a backing vocal", () => {
+    const doc = parser.parse("[00:01.00]Line\n[00:02.00](one by one)");
+    expect(doc.groups[1]!.labels).toEqual(["backing"]);
+    expect(groupText(doc.groups[1]!)).toBe("one by one");
   });
   test("trims whitespace from line text", () => {
-    const input = "[00:01.00]  Song text  \n[00:05.00]   Another  ";
-    const doc = parser.parse(input);
-    expect(doc.lines[0]!.text).toBe("Song text");
-    expect(doc.lines[1]!.text).toBe("Another");
+    expect(texts(parser.parse("[00:01.00]  Song text  \n[00:05.00]   Another  "))).toEqual(["Song text", "Another"]);
   });
 });
 
 describe("SimpleLrcParser.serialize", () => {
   test("serializes document with metadata and lines", () => {
-    const doc = parser.parse("[ar:Muse]\n[ti:Uprising]\n[00:01.00]Hello\n[00:05.00]World");
-    const output = parser.serialize(doc);
+    const output = parser.serialize(parser.parse("[ar:Muse]\n[ti:Uprising]\n[00:01.00]Hello\n[00:05.00]World"));
     expect(output).toContain("[ar:Muse]");
     expect(output).toContain("[ti:Uprising]");
     expect(output).toContain("[tool:https://github.com/txssu/lrcgen]");
@@ -67,31 +58,18 @@ describe("SimpleLrcParser.serialize", () => {
     expect(output).toContain("[00:05.00] World");
   });
   test("omits timestamp for unsynced lines", () => {
-    const doc = parser.parse("Plain text line");
-    const output = parser.serialize(doc);
+    const output = parser.serialize(parser.parse("Plain text line"));
     expect(output).toContain("Plain text line");
     expect(output).not.toContain("[00:");
   });
-  test("always includes tool tag", () => {
-    const doc = parser.parse("[00:01.00]Line");
-    const output = parser.serialize(doc);
-    expect(output).toContain("[tool:https://github.com/txssu/lrcgen]");
+  test("labelled groups go into their line in parentheses", () => {
+    const doc = { ...docOfGroups(group("one two three", [1000, 1500, 2500]), group("ooh", [2000], [2400], ["backing"])), metadata: { tool: "t" } };
+    expect(parser.serialize(doc)).toContain("[00:01.00] one two (ooh) three");
   });
-  test("trims whitespace from text on serialize", () => {
-    let doc = parser.parse("[00:01.00]Hello");
-    // Manually inject whitespace to simulate user input
-    doc = { ...doc, lines: [{ timestamp: 1000, text: "  Song text  " }] };
-    const output = parser.serialize(doc);
-    expect(output).toContain("[00:01.00] Song text");
-    expect(output).not.toContain("  Song text");
-  });
-  test("round-trips correctly", () => {
-    const input = "[ar:Radiohead]\n[ti:Creep]\n[00:12.30]First\n[00:15.80]Second";
-    const doc = parser.parse(input);
-    const output = parser.serialize(doc);
-    const doc2 = parser.parse(output);
-    expect(doc2.metadata.artist).toBe(doc.metadata.artist);
-    expect(doc2.metadata.title).toBe(doc.metadata.title);
-    expect(doc2.lines).toEqual(doc.lines);
+  test("round-trips", () => {
+    const doc = parser.parse("[ar:Radiohead]\n[ti:Creep]\n[00:12.30]First\n[00:15.80]Second");
+    const again = parser.parse(parser.serialize(doc));
+    expect(again.metadata.artist).toBe("Radiohead");
+    expect(again.groups).toEqual(doc.groups);
   });
 });

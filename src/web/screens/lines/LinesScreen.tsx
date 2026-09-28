@@ -1,15 +1,15 @@
-// 3 · Lines: tap Enter the moment each line starts. The selected line is the tap target; a tap times it and
-// selects the next line. Backspace undoes the last tap, ←/→ nudge, R replays, F2 edits the text, Ctrl+Enter / B
-// insert a line / backing line, Del deletes. Latency banner, whole-song waveform and Song info around it.
+// 3 · Lines: tap Enter the moment each line starts. The selected line is the tap target; a tap times it (its first
+// word) and selects the next line. Backspace undoes the last tap, ←/→ nudge, R replays, F2 edits the text,
+// Ctrl+Enter / B insert a line / a backing vocal (a group labelled "backing"), Del deletes. Latency banner,
+// whole-song waveform and Song info around it.
 
 import { memo, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { asBacking, isBacking } from "../../../core/backing";
 import type { Flag } from "../../../core/flags";
-import { insertLine, removeLine, setLineText, setMetadata, type LrcLine } from "../../../core/lrc-document";
+import { groupStart, groupText, insertGroup, isLabelled, removeGroup, setGroupText, setMetadata, type Group } from "../../../core/lyrics";
 import { useFlags } from "../../audio/audio-data";
 import { useOutputDevice } from "../../audio/output-device";
 import { player, usePlayerState, usePositionEffect } from "../../audio/player";
-import { Button, Field, IconButton, Kbd } from "../../components/controls";
+import { Button, Field, IconButton, Kbd, LabelChips } from "../../components/controls";
 import { Icon } from "../../components/icons";
 import { WaveformOverview } from "../../components/WaveformOverview";
 import { useHotkeys } from "../../hotkeys/hotkeys";
@@ -40,7 +40,7 @@ interface Editing {
   /** Inserted just now: cancelling (or leaving it empty) takes the insertion back. */
   isNew: boolean;
   initial: string;
-  /** Caret position when editing starts (inside the parentheses of a new backing line). */
+  /** Caret position when editing starts. */
   caret: number;
 }
 
@@ -61,7 +61,8 @@ export function LinesScreen() {
   editingRef.current = editing;
   // After tapping the last line there is nothing left to tap: no target until the selection moves.
   const [completeAt, setCompleteAt] = useState<number | null>(null);
-  const complete = completeAt === sel && doc.lines[sel]?.timestamp != null;
+  const selGroup = doc.groups[sel];
+  const complete = completeAt === sel && !!selGroup && groupStart(selGroup) !== null;
 
   useEffect(() => {
     if (completeAt !== null && completeAt !== sel) setCompleteAt(null);
@@ -76,7 +77,7 @@ export function LinesScreen() {
     if (!player.getState().playing) seekToLine(i);
   }, []);
 
-  const target = editing || complete || doc.lines.length === 0 ? -1 : sel;
+  const target = editing || complete || doc.groups.length === 0 ? -1 : sel;
 
   // ---------------------------------------------------------------- actions (read the store: keys can outrun renders)
 
@@ -88,14 +89,14 @@ export function LinesScreen() {
   const tap = () => {
     const d = currentDoc();
     const song = currentSong();
-    if (!d || !song || d.lines.length === 0) return;
+    if (!d || !song || d.groups.length === 0) return;
     const i = song.selection.line;
     if (!player.getState().playing) {
       player.play(pausedStart(d, i, player.getCurrentPosition()));
       toastOnce("Playing — press Enter the moment each line starts");
       return;
     }
-    if (completeAt === i && d.lines[i]?.timestamp != null) {
+    if (completeAt === i && d.groups[i] && groupStart(d.groups[i]) !== null) {
       toastQuietly("Every line is tapped. Select a line to tap it again.");
       return;
     }
@@ -117,8 +118,8 @@ export function LinesScreen() {
   const step = (dir: 1 | -1) => {
     const d = currentDoc();
     const song = currentSong();
-    if (!d || !song || d.lines.length === 0) return;
-    const i = Math.min(Math.max(0, song.selection.line + dir), d.lines.length - 1);
+    if (!d || !song || d.groups.length === 0) return;
+    const i = Math.min(Math.max(0, song.selection.line + dir), d.groups.length - 1);
     setCompleteAt(null);
     selectLine(i);
   };
@@ -135,7 +136,7 @@ export function LinesScreen() {
       commit(next, "nudge", { coalesceMs: lastNudge.current === line ? NUDGE_COALESCE_MS : undefined });
       lastNudge.current = line;
     }
-    else if (d.lines[song.selection.line]?.timestamp == null) toastQuietly("This line has no start yet — tap it first");
+    else if (!d.groups[song.selection.line] || groupStart(d.groups[song.selection.line]!) === null) toastQuietly("This line has no start yet — tap it first");
   };
 
   const replay = () => {
@@ -148,32 +149,30 @@ export function LinesScreen() {
   };
 
   const startEdit = (index: number) => {
-    const line = currentDoc()?.lines[index];
-    if (!line) return;
+    const group = currentDoc()?.groups[index];
+    if (!group) return;
+    const text = groupText(group);
     select(index);
-    setEditing({ index, isNew: false, initial: line.text, caret: line.text.length });
+    setEditing({ index, isNew: false, initial: text, caret: text.length });
   };
 
   const insert = (backing: boolean) => {
     const d = currentDoc();
     const song = currentSong();
     if (!d || !song) return;
-    const at = d.lines.length === 0 ? 0 : song.selection.line + 1;
-    const text = backing ? asBacking("") : "";
-    let next = insertLine(d, at - 1);
-    if (backing) next = setLineText(next, at, text);
-    commit(next, "insert line");
+    const at = d.groups.length === 0 ? 0 : song.selection.line + 1;
+    commit(insertGroup(d, at, "", backing ? ["backing"] : []), "insert line");
     select(at);
     setCompleteAt(null);
-    setEditing({ index: at, isNew: true, initial: text, caret: backing ? 1 : 0 });
+    setEditing({ index: at, isNew: true, initial: "", caret: 0 });
   };
 
   const deleteLine = () => {
     const d = currentDoc();
     const song = currentSong();
-    if (!d || !song || d.lines.length === 0) return;
+    if (!d || !song || d.groups.length === 0) return;
     const i = song.selection.line;
-    commit(removeLine(d, i), "delete line");
+    commit(removeGroup(d, i), "delete line");
     toast(`Line ${i + 1} deleted`, { action: { label: "Undo", run: () => undoLabel() === "delete line" && undo() } });
   };
 
@@ -186,17 +185,17 @@ export function LinesScreen() {
     if (!d) return;
     const value = text?.trim() ?? null;
     if (ed.isNew) {
-      if (value === null || value === "" || value === asBacking("")) {
+      if (value === null || value === "") {
         if (undoLabel() === "insert line") {
           undo();
           select(Math.max(0, ed.index - 1));
         }
         return;
       }
-      commit(setLineText(d, ed.index, value), "insert line", { coalesceMs: SESSION_MS });
+      commit(setGroupText(d, ed.index, value), "insert line", { coalesceMs: SESSION_MS });
       return;
     }
-    if (value !== null && value !== ed.initial.trim()) commit(setLineText(d, ed.index, value), "edit text");
+    if (value !== null && value !== ed.initial.trim()) commit(setGroupText(d, ed.index, value), "edit text");
   };
 
   useHotkeys({
@@ -250,13 +249,13 @@ export function LinesScreen() {
                 aria-label="Delete line"
                 title="Delete the selected line"
                 style={{ paddingInline: 10 }}
-                disabled={doc.lines.length === 0}
+                disabled={doc.groups.length === 0}
                 onClick={deleteLine}
               />
             </span>
           </div>
           <LineList
-            lines={doc.lines}
+            lines={doc.groups}
             sel={sel}
             target={target}
             playingLine={playingLine}
@@ -294,7 +293,7 @@ export function LinesScreen() {
 // ---------------------------------------------------------------- line list
 
 function LineList(props: {
-  lines: LrcLine[];
+  lines: Group[];
   sel: number;
   target: number;
   playingLine: number;
@@ -385,7 +384,7 @@ const LineRow = memo(function LineRow({
   actions,
 }: {
   index: number;
-  line: LrcLine;
+  line: Group;
   isTarget: boolean;
   isSelected: boolean;
   isPlaying: boolean;
@@ -394,8 +393,10 @@ const LineRow = memo(function LineRow({
   editing: Editing | null;
   actions: RowActions;
 }) {
-  const timed = line.timestamp !== null;
-  const backing = isBacking(line);
+  const start = groupStart(line);
+  const timed = start !== null;
+  const backing = isLabelled(line);
+  const text = groupText(line);
   const classes = [
     "lines-row",
     isTarget && "is-target",
@@ -423,14 +424,14 @@ const LineRow = memo(function LineRow({
       onDoubleClick={() => actions.edit(index)}
     >
       <span className="n">{index + 1}</span>
-      {isTarget && !timed ? <kbd className="lines-enter-cap">Enter</kbd> : <span className="time">{clock(line.timestamp)}</span>}
+      {isTarget && !timed ? <kbd className="lines-enter-cap">Enter</kbd> : <span className="time">{clock(start)}</span>}
       <span className="text">
         {editing ? (
           <LineTextInput editing={editing} onFinish={actions.finish} />
-        ) : line.text.trim() === "" ? (
+        ) : text === "" ? (
           <span className="empty">empty line</span>
         ) : (
-          line.text
+          text
         )}
       </span>
       <span className="side">
@@ -439,7 +440,7 @@ const LineRow = memo(function LineRow({
             <Icon.Warning size={14} />
           </span>
         )}
-        {backing && <span className="lines-backing-tag">backing vocal</span>}
+        {backing && <LabelChips labels={line.labels} />}
         {waiting ? (
           <span className="lines-waiting">up next — waiting for your tap</span>
         ) : isPlaying && !isTarget ? (

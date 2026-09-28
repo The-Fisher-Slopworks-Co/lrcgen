@@ -60,18 +60,18 @@ describe("describeResult", () => {
 
 describe("resultLyrics", () => {
   test("synced lyrics keep their times", () => {
-    const { lines, timing } = resultLyrics(result(1, { syncedLyrics: "[00:14.62] One\n[00:19.88] Two" }));
+    const { groups, timing } = resultLyrics(result(1, { syncedLyrics: "[00:14.62] One\n[00:19.88] Two" }));
     expect(timing).toBe("lines");
-    expect(lines.map((l) => l.timestamp)).toEqual([14620, 19880]);
+    expect(groups.map((g) => g.words[0]!.start)).toEqual([14620, 19880]);
   });
 
   test("plain lyrics split at line breaks", () => {
-    const { lines, timing } = resultLyrics(result(1));
+    const { groups, timing } = resultLyrics(result(1));
     expect(timing).toBe("none");
-    expect(lines.map((l) => l.text)).toEqual(["One", "Two"]);
+    expect(groups.map((g) => g.words[0]!.text)).toEqual(["One", "Two"]);
   });
 
   test("instrumental has no lines", () => {
-    expect(resultLyrics(result(1, { instrumental: true })).lines).toEqual([]);
+    expect(resultLyrics(result(1, { instrumental: true })).groups).toEqual([]);
   });
 });

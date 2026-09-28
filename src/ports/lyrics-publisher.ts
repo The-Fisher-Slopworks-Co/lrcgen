@@ -1,4 +1,4 @@
-import type { LrcDocument } from "../core/lrc-document";
+import type { LyricsDoc } from "../core/lyrics";
 
 export interface PublishResult {
   success: boolean;
@@ -7,5 +7,5 @@ export interface PublishResult {
 
 export interface LyricsPublisher {
   name: string;
-  publish(doc: LrcDocument, audioLengthMs: number): Promise<PublishResult>;
+  publish(doc: LyricsDoc, audioLengthMs: number): Promise<PublishResult>;
 }

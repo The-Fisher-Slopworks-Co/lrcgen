@@ -23,6 +23,21 @@ beforeAll(async () => {
   await Bun.write(path.join(album, "02 Song.enhanced.lrc"), "[00:01.00]<00:01.00>Hello <00:01.50>world<00:02.00>\n");
   await Bun.write(path.join(album, "03 Plain.txt"), "First\n\nSecond\nThird\n");
   await Bun.write(path.join(album, "10 Other.lrc"), "[00:05.00] Timed\n");
+  // lrcgen's own file wins over the .lrc next to it.
+  await Bun.write(path.join(album, "Sub", "Own.wav"), wavBytes({ seconds: 1 }));
+  await Bun.write(path.join(album, "Sub", "Own.lrc"), "[00:05.00] From the LRC\n");
+  await Bun.write(
+    path.join(album, "Sub", "Own.lyrics.json"),
+    JSON.stringify({
+      format: "lrcgen-lyrics",
+      version: 1,
+      metadata: { title: "Own" },
+      groups: [
+        { id: "g1", labels: [], words: [{ id: "w1", text: "Mine", start: 1000, end: 1400 }] },
+        { id: "g2", labels: ["adlib"], words: [{ id: "w2", text: "yeah", start: 1200, end: null }] },
+      ],
+    }),
+  );
 });
 
 afterAll(() => t.close());
@@ -165,25 +180,36 @@ describe("GET /api/lyrics-file", () => {
     const content = (await res.json()) as LyricsFileContent;
     expect(content.timing).toBe("words");
     expect(content.doc.metadata.title).toBe("Tagged");
-    expect(content.doc.lines[0]).toMatchObject({
-      timestamp: 1000,
-      text: "Hello world",
-      words: [
-        { start: 1000, text: "Hello " },
-        { start: 1500, text: "world" },
-      ],
-      end: 2000,
-    });
-    expect(content.doc.lines[1]).toEqual({ timestamp: 3000, text: "Second line" });
+    expect(content.doc.groups[0]!.words.map((w) => [w.text, w.start, w.end])).toEqual([
+      ["Hello", 1000, null],
+      ["world", 1500, 2000],
+    ]);
+    expect(content.doc.groups[1]!.words.map((w) => [w.text, w.start])).toEqual([
+      ["Second", 3000],
+      ["line", null],
+    ]);
   });
 
   test("reads a .txt as untimed lines", async () => {
     const content = (await (await t.api(`/api/lyrics-file${q({ path: path.join(album, "03 Plain.txt") })}`)).json()) as LyricsFileContent;
     expect(content.timing).toBe("none");
-    expect(content.doc.lines).toEqual([
-      { timestamp: null, text: "First" },
-      { timestamp: null, text: "Second" },
-      { timestamp: null, text: "Third" },
+    expect(content.doc.groups.map((g) => g.words.map((w) => [w.text, w.start]))).toEqual([[["First", null]], [["Second", null]], [["Third", null]]]);
+  });
+
+  test("reads lrcgen's lyrics file, the sidecar it prefers", async () => {
+    const listing = (await (await t.api(`/api/fs/list${q({ path: path.join(album, "Sub") })}`)).json()) as DirListing;
+    const entry = listing.entries.find((e) => e.name === "Own.wav");
+    expect(entry?.kind === "audio" && entry.lyrics).toEqual({
+      path: path.join(album, "Sub", "Own.lyrics.json"),
+      name: "Own.lyrics.json",
+      format: "lyrics",
+      timing: "words",
+      lineCount: 2,
+    });
+    const content = (await (await t.api(`/api/lyrics-file${q({ path: path.join(album, "Sub", "Own.lyrics.json") })}`)).json()) as LyricsFileContent;
+    expect(content.doc.groups.map((g) => [g.labels, g.words.map((w) => [w.text, w.start, w.end])])).toEqual([
+      [[], [["Mine", 1000, 1400]]],
+      [["adlib"], [["yeah", 1200, null]]],
     ]);
   });
 

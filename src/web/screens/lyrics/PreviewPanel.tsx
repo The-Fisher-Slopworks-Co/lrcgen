@@ -1,7 +1,7 @@
 // The right-hand preview: where the lyrics come from, their lines (with times when they have them), and the use buttons.
 
 import type { ReactNode } from "react";
-import type { LrcLine } from "../../../core/lrc-document";
+import { groupStart, groupText, isLabelled, type Group } from "../../../core/lyrics";
 import type { TimingLevel } from "../../../shared/api";
 import { Button } from "../../components/controls";
 import { EmptyState } from "../../components/feedback";
@@ -12,7 +12,7 @@ export interface PreviewContent {
   title: string;
   /** Appended to "N lines · line timings" ("contributed by a database user"). */
   source?: string;
-  lines: LrcLine[];
+  groups: Group[];
   timing: TimingLevel;
   /** Shown instead of lines (instrumental result, nothing pasted yet). */
   empty?: { title: string; text?: ReactNode };
@@ -26,10 +26,10 @@ const TIMING_LABEL: Record<TimingLevel, string> = {
   words: "line and word timings",
 };
 
-/** The primary action's label and lines for a preview (text only when there are no timings to keep). */
-export function primaryUse(content: PreviewContent): { label: string; lines: LrcLine[] } {
-  if (content.timing === "none") return { label: "Use these lyrics", lines: stripTimings(content.lines) };
-  return { label: content.timing === "words" ? "Use lyrics and timings" : "Use lyrics and line timings", lines: content.lines };
+/** The primary action's label and groups for a preview (text only when there are no timings to keep). */
+export function primaryUse(content: PreviewContent): { label: string; groups: Group[] } {
+  if (content.timing === "none") return { label: "Use these lyrics", groups: stripTimings(content.groups) };
+  return { label: content.timing === "words" ? "Use lyrics and timings" : "Use lyrics and line timings", groups: content.groups };
 }
 
 /** `primaryKey`: the key cap on the main button ("Ctrl+Enter" while typing in the text box). */
@@ -39,10 +39,10 @@ export function PreviewPanel({
   primaryKey = "Enter",
 }: {
   content: PreviewContent | null;
-  onUse: (lines: LrcLine[]) => void;
+  onUse: (groups: Group[]) => void;
   primaryKey?: string;
 }) {
-  const count = content ? lyricLineCount(content.lines) : 0;
+  const count = content ? lyricLineCount(content.groups) : 0;
   const usable = !!content && !content.empty && count > 0;
   const primary = content && primaryUse(content);
   const timed = content?.timing !== "none";
@@ -71,21 +71,24 @@ export function PreviewPanel({
         </EmptyState>
       ) : (
         <div className={timed ? "lyrics-preview-lines" : "lyrics-preview-lines plain"}>
-          {content.lines.map((line, i) => (
-            <div key={i} className="lyrics-preview-line">
-              {timed && <span className="time">{line.timestamp == null ? "" : clock(line.timestamp)}</span>}
-              {line.text.trim() ? <span className="text">{line.text}</span> : <span className="text gap">—</span>}
-            </div>
-          ))}
+          {content.groups.map((g) => {
+            const start = groupStart(g);
+            return (
+              <div key={g.id} className="lyrics-preview-line">
+                {timed && <span className="time">{start === null ? "" : clock(start)}</span>}
+                <span className={isLabelled(g) ? "text backing" : "text"}>{groupText(g)}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
       <div className="lyrics-preview-actions">
-        <Button variant="primary" size="dialog" block kbd={primaryKey} disabled={!usable} onClick={() => primary && onUse(primary.lines)}>
+        <Button variant="primary" size="dialog" block kbd={primaryKey} disabled={!usable} onClick={() => primary && onUse(primary.groups)}>
           {primary?.label ?? "Use these lyrics"}
         </Button>
         {usable && timed && (
-          <Button variant="secondary" block className="lyrics-secondary" onClick={() => onUse(stripTimings(content.lines))}>
+          <Button variant="secondary" block className="lyrics-secondary" onClick={() => onUse(stripTimings(content.groups))}>
             Use lyrics only
           </Button>
         )}

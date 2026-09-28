@@ -1,0 +1,1463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>lrcgen · word intervals & groups — prototype</title>
+<link rel="stylesheet" href="/fonts/golos-text/400.css" />
+<link rel="stylesheet" href="/fonts/golos-text/500.css" />
+<link rel="stylesheet" href="/fonts/golos-text/600.css" />
+<link rel="stylesheet" href="/fonts/golos-text/700.css" />
+<link rel="stylesheet" href="/fonts/jetbrains-mono/400.css" />
+<link rel="stylesheet" href="/fonts/jetbrains-mono/500.css" />
+<link rel="stylesheet" href="/fonts/unbounded/600.css" />
+<link rel="stylesheet" href="/fonts/unbounded/700.css" />
+<link rel="stylesheet" href="/tokens.css" />
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--page); color: var(--text-1); font-family: var(--font-ui); font-size: 14px; line-height: 1.4;
+  -webkit-font-smoothing: antialiased; min-width: 1200px; min-height: 760px; overflow: hidden;
+}
+h1, h2, h3, p, ol, ul { margin: 0; padding: 0; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+* { scrollbar-width: thin; scrollbar-color: var(--border-4) transparent; }
+kbd {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px;
+  border: 1px solid var(--border-4); border-bottom-width: 2px; border-radius: 5px; background: var(--raised-2);
+  color: var(--text-2); font-family: var(--font-mono); font-size: 11px; font-weight: 500; line-height: 1; white-space: nowrap;
+}
+.mono { font-family: var(--font-mono); }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-5); }
+
+.shell { display: grid; grid-template-rows: var(--header-h) 1fr var(--footer-h); height: 100vh; }
+
+/* header */
+.hdr { display: flex; align-items: center; gap: 18px; padding: 0 20px; border-bottom: 1px solid var(--border-1); }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 700; font-size: 19px; padding-right: 18px; border-right: 1px solid var(--border-1); }
+.logo { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); display: grid; place-items: center; }
+.song b { display: block; font-family: var(--font-display); font-size: 14px; font-weight: 600; }
+.song span { font-size: 12px; color: var(--text-4); }
+.proto-pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--accent-banner); border: 1px solid var(--accent-banner-border); color: var(--accent-hover); }
+.spacer { flex: 1; }
+.status {
+  position: fixed; left: 50%; bottom: calc(var(--footer-h) + 14px); transform: translateX(-50%); z-index: 40; max-width: 640px;
+  padding: 9px 14px; border-radius: 10px; background: var(--dialog); border: 1px solid var(--border-4); font-size: 13px; color: var(--text-2);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4); pointer-events: none;
+}
+.status:empty { display: none; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 8px;
+  border: 1px solid var(--border-3); background: var(--raised-2); color: var(--text-1); font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+.btn:hover { background: var(--raised-3); border-color: var(--border-4); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent-border); color: var(--on-accent); }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-3); }
+.btn.ghost:hover { background: var(--raised-2); }
+.btn kbd { margin-left: auto; }
+.btn.primary kbd { background: var(--accent-pressed); border-color: var(--accent-border); color: var(--on-accent); }
+
+.body { display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px; min-height: 0; }
+
+/* groups pane */
+.groups-pane { border-right: 1px solid var(--border-1); display: flex; flex-direction: column; min-height: 0; }
+.pane-head { display: flex; align-items: baseline; justify-content: space-between; padding: 18px 18px 10px; }
+.pane-head .count { font-size: 12px; color: var(--muted-1); font-family: var(--font-mono); }
+.suggest {
+  margin: 0 14px 10px; padding: 12px 14px; border-radius: 10px; background: var(--accent-banner);
+  border: 1px solid var(--accent-banner-border); font-size: 13px; color: var(--text-2);
+}
+.suggest p { margin-bottom: 10px; }
+.suggest b { color: var(--accent-hover); }
+.suggest .row { display: flex; gap: 8px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 10px; }
+.filter {
+  height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--border-2); background: transparent;
+  color: var(--text-4); font-size: 12px; display: inline-flex; align-items: center; gap: 6px;
+}
+.filter .n { font-family: var(--font-mono); font-size: 11px; color: var(--muted-1); }
+.filter[aria-pressed="true"] { background: var(--selected); border-color: var(--border-4); color: var(--text-1); }
+.filter .dot { width: 8px; height: 8px; border-radius: 50%; }
+.group-list { list-style: none; overflow: auto; flex: 1; padding: 0 8px 16px; }
+.gl-item {
+  display: grid; grid-template-columns: 58px 1fr; gap: 2px 8px; padding: 7px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.gl-item:hover { background: var(--raised-1); }
+.gl-item.selected { background: var(--accent-row); border-color: var(--accent-banner-border); }
+.gl-item.dim { opacity: 0.35; }
+.gl-item .t { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted-1); padding-top: 2px; }
+.gl-item.selected .t { color: var(--accent); }
+.gl-item .txt { font-size: 13.5px; color: var(--text-2); line-height: 1.35; }
+.gl-item.guest { grid-template-columns: 58px 14px 1fr; }
+.gl-item.guest .arrow { color: var(--muted-2); font-size: 12px; padding-top: 1px; }
+.gl-item.guest .txt { color: var(--text-4); font-style: italic; }
+.gl-item .chips { grid-column: 2 / -1; display: flex; gap: 4px; flex-wrap: wrap; }
+.gl-item.guest .chips { grid-column: 3 / -1; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 7px; border-radius: 999px; font-size: 11px;
+  font-weight: 600; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); color: var(--c);
+  background: color-mix(in srgb, var(--c) 12%, transparent); white-space: nowrap;
+}
+.chip button { border: 0; background: none; padding: 0; color: inherit; opacity: 0.7; font-size: 13px; line-height: 1; }
+.chip button:hover { opacity: 1; }
+
+/* center */
+.center { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 16px 20px 12px; gap: 12px; }
+.center-top { display: flex; align-items: center; gap: 14px; min-height: 36px; }
+.center-top .no { font-family: var(--font-mono); font-size: 13px; color: var(--text-4); white-space: nowrap; }
+.center-top h1 { font-family: var(--font-display); font-weight: 600; font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.zoom { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--text-4); font-size: 12px; }
+.zoom button { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border-2); background: transparent; color: var(--text-2); font-size: 16px; }
+.zoom button:hover { background: var(--raised-2); }
+.zoom .lbl { min-width: 70px; text-align: center; font-family: var(--font-mono); }
+
+.overview { position: relative; height: 38px; border-radius: 8px; background: var(--well); border: 1px solid var(--border-1); cursor: pointer; }
+.overview canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.timeline {
+  position: relative; flex: 1; min-height: 0; border: 1px solid var(--border-1); border-radius: 12px; background: var(--well);
+  display: grid; grid-template-columns: 72px 1fr; grid-template-rows: 1fr; overflow: hidden; user-select: none;
+}
+.gutter { grid-column: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border-1); }
+.gutter .g-ruler { height: 28px; }
+.gutter .g-row { display: flex; align-items: center; padding-left: 14px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; color: var(--muted-1); text-transform: uppercase; border-top: 1px dashed transparent; }
+.gutter .g-row.first-overlay { border-top-color: var(--border-2); }
+.gutter .g-wave { flex: 1; display: flex; align-items: center; padding-left: 14px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; color: var(--vocals); border-top: 1px solid var(--border-1); }
+.track { grid-column: 2; grid-row: 1; position: relative; display: grid; grid-template-rows: 28px auto 1fr; min-width: 0; }
+.ruler { position: relative; height: 28px; border-bottom: 1px solid var(--border-1); cursor: pointer; overflow: hidden; }
+.tick { position: absolute; bottom: 0; width: 1px; background: var(--border-3); }
+.tick.major { background: var(--border-4); }
+.tick span { position: absolute; bottom: 9px; left: 4px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-1); white-space: nowrap; }
+.rows { position: relative; overflow: hidden; }
+.row-line { position: absolute; left: 0; right: 0; height: 1px; border-top: 1px dashed var(--border-2); pointer-events: none; }
+.band {
+  position: absolute; border-radius: 9px; border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+  background: color-mix(in srgb, var(--c) 6%, transparent); cursor: pointer;
+}
+.band.selected { border-color: color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.band.dim { opacity: 0.3; }
+.band .tag { position: absolute; top: 3px; left: 6px; display: flex; gap: 4px; align-items: center; pointer-events: none; white-space: nowrap; }
+.band .tag .num { font-family: var(--font-mono); font-size: 10px; color: var(--muted-1); }
+.band .tag .chip { height: 15px; font-size: 10px; padding: 0 6px; }
+.word {
+  position: absolute; height: 30px; border-radius: 6px; background: var(--raised-3); border: 1px solid var(--border-3);
+  font-size: 13px; font-weight: 600; color: var(--text-1); cursor: grab; box-shadow: inset 3px 0 0 var(--c);
+}
+.word .lbl { position: absolute; left: 7px; top: 0; line-height: 28px; white-space: nowrap; overflow: hidden; pointer-events: none; }
+.word.untimed { opacity: 0.5; border-style: dashed; }
+.word:hover { border-color: var(--border-strong); }
+.word.selected { border-color: var(--accent); background: var(--accent-tint); box-shadow: inset 3px 0 0 var(--accent); }
+.word.sung { background: color-mix(in srgb, var(--c) 35%, var(--raised-3)); }
+.word.retap-next { border-color: var(--accent); border-style: dashed; }
+.word .h { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
+.word .h.l { left: 0; }
+.word .h.r { right: 0; }
+.word:hover .h.r, .word.selected .h.r { background: linear-gradient(90deg, transparent 2px, color-mix(in srgb, var(--accent) 60%, transparent) 2px 4px, transparent 4px); }
+.word:hover .h.l, .word.selected .h.l { background: linear-gradient(90deg, transparent 3px, color-mix(in srgb, var(--accent) 60%, transparent) 3px 5px, transparent 5px); }
+.wave { position: relative; border-top: 1px solid var(--border-1); cursor: pointer; min-height: 90px; }
+.wave canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; z-index: 5; box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 50%, transparent); }
+.drag-tip {
+  position: fixed; z-index: 50; pointer-events: none; padding: 3px 7px; border-radius: 6px; background: var(--dialog);
+  border: 1px solid var(--border-4); font-family: var(--font-mono); font-size: 11.5px; color: var(--text-1); display: none;
+}
+.loading { position: absolute; right: 12px; bottom: 10px; font-size: 12px; color: var(--muted-1); }
+
+/* retap */
+.retap {
+  border: 1px solid var(--accent-banner-border); background: var(--accent-banner); border-radius: 12px; padding: 14px 16px;
+  display: grid; grid-template-columns: 1fr auto; gap: 10px 16px; align-items: center;
+}
+.retap .words { display: flex; flex-wrap: wrap; gap: 6px; }
+.retap .rw { padding: 6px 10px; border-radius: 8px; background: var(--raised-2); border: 1px solid var(--border-3); font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--text-4); }
+.retap .rw.done { color: var(--text-1); }
+.retap .rw.cur { border-color: var(--accent); color: var(--accent-hover); }
+.retap .rw.holding { background: var(--accent); color: var(--on-accent); }
+.retap .rw small { display: block; font-family: var(--font-mono); font-size: 10.5px; font-weight: 400; color: var(--muted-1); }
+.retap .rw.holding small { color: var(--on-accent); }
+.retap .how { font-size: 13px; color: var(--text-3); grid-column: 1 / -1; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+
+.hints { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--text-5); align-items: center; }
+.hints span { display: inline-flex; gap: 5px; align-items: center; }
+
+/* inspector */
+.inspector { border-left: 1px solid var(--border-1); overflow: auto; padding: 18px 20px 24px; display: flex; flex-direction: column; gap: 22px; }
+.section { display: flex; flex-direction: column; gap: 10px; }
+.section h2 { font-family: var(--font-display); font-weight: 600; font-size: 19px; line-height: 1.3; }
+.word-text { font-family: var(--font-display); font-weight: 600; font-size: 22px; background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 2px 6px; margin: 0 -7px; width: calc(100% + 14px); }
+.word-text:hover { border-color: var(--border-2); }
+.word-text:focus { border-color: var(--accent); background: var(--raised-1); }
+.times { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.time-box { border: 1px solid var(--border-3); border-radius: 10px; padding: 8px 10px 10px; background: var(--raised-1); }
+.time-box.active { border-color: var(--accent-border); }
+.time-box label { font-size: 11.5px; color: var(--text-5); display: flex; justify-content: space-between; }
+.time-box .v { font-family: var(--font-mono); font-size: 18px; margin: 2px 0 8px; }
+.time-box .nudges { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.time-box .nudges button { height: 26px; border-radius: 6px; border: 1px solid var(--border-2); background: var(--raised-2); font-family: var(--font-mono); font-size: 11px; color: var(--text-3); padding: 0; }
+.time-box .nudges button:hover { background: var(--raised-3); color: var(--text-1); }
+.meta-row { display: flex; gap: 12px; font-size: 12.5px; color: var(--text-4); flex-wrap: wrap; }
+.meta-row b { color: var(--text-2); font-weight: 500; font-family: var(--font-mono); }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.actions .btn { justify-content: flex-start; }
+.actions .btn.wide { grid-column: 1 / -1; }
+.group-words { display: flex; flex-wrap: wrap; gap: 4px 0; font-size: 16px; line-height: 1.5; }
+.group-words span { padding: 0 3px; border-radius: 4px; cursor: pointer; }
+.group-words span:hover { background: var(--raised-2); }
+.group-words span.selected { background: var(--accent-tint); color: var(--accent-hover); }
+.labels { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.labels .chip { height: 24px; font-size: 12px; padding: 0 8px; }
+.label-input {
+  height: 26px; min-width: 120px; flex: 1; border-radius: 999px; border: 1px dashed var(--border-4); background: transparent; padding: 0 10px;
+  font-size: 12px;
+}
+.label-input:focus { border-style: solid; border-color: var(--accent); }
+.label-sugg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--muted-1); }
+.label-sugg .chip { cursor: pointer; opacity: 0.75; }
+.label-sugg .chip:hover { opacity: 1; }
+.note { font-size: 12.5px; color: var(--text-5); line-height: 1.45; }
+.tabs { display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--raised-1); border: 1px solid var(--border-2); align-self: flex-start; }
+.tabs button { height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; color: var(--text-4); font-weight: 600; }
+.tabs button[aria-pressed="true"] { background: var(--raised-3); color: var(--text-1); }
+pre.code {
+  margin: 0; padding: 12px; border-radius: 10px; background: var(--well); border: 1px solid var(--border-1); font-family: var(--font-mono);
+  font-size: 11px; line-height: 1.55; color: var(--text-3); overflow: auto; max-height: 300px; white-space: pre;
+}
+pre.code.wrap { white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+pre.code .k { color: var(--vocals); }
+pre.code .s { color: #c9d59a; }
+pre.code .n { color: var(--accent-hover); }
+pre.code .ts { color: var(--accent); }
+pre.code .gap { color: var(--warn-soft); }
+
+/* transport */
+.transport { display: flex; align-items: center; gap: 18px; padding: 0 20px; border-top: 1px solid var(--border-1); }
+.play { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; }
+.play:hover { background: var(--accent-hover); }
+.clock { font-family: var(--font-mono); font-size: 22px; }
+.clock span { font-size: 14px; color: var(--text-5); }
+.seg { display: flex; gap: 2px; padding: 3px; border-radius: 9px; border: 1px solid var(--border-2); }
+.seg button { height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; font-family: var(--font-mono); font-size: 12px; color: var(--text-4); }
+.seg button[aria-pressed="true"] { background: var(--raised-3); color: var(--text-1); }
+.toggle { height: 36px; display: inline-flex; gap: 8px; align-items: center; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border-2); background: transparent; font-size: 13px; font-weight: 600; color: var(--text-3); }
+.toggle[aria-pressed="true"] { background: var(--vocals-bg); border-color: var(--vocals-dim); color: var(--vocals); }
+.foot-note { font-size: 12px; color: var(--text-5); max-width: 380px; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="hdr">
+    <div class="brand">
+      <span class="logo"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#1a1408" stroke-width="2" stroke-linecap="round"><path d="M3 6v4M6 3v10M9 5v6M12 7v2" /></svg></span>
+      lrcgen
+    </div>
+    <div class="song"><b id="song-title">…</b><span id="song-sub"></span></div>
+    <span class="proto-pill">Prototype · word intervals &amp; groups</span>
+    <span class="spacer"></span>
+    <span class="status" id="status" role="status"></span>
+    <button class="btn" id="copy-doc" title="Copy the whole document in the new format">Copy document JSON</button>
+  </header>
+
+  <div class="body">
+    <aside class="groups-pane">
+      <div class="pane-head"><p class="eyebrow">Groups</p><span class="count" id="group-count"></span></div>
+      <div id="suggest"></div>
+      <div class="filters" id="filters"></div>
+      <ol class="group-list" id="group-list"></ol>
+    </aside>
+
+    <main class="center">
+      <div class="center-top">
+        <span class="no" id="cur-no"></span>
+        <h1 id="cur-text"></h1>
+        <div class="zoom">
+          <button id="zoom-out" title="Zoom out (−)">−</button>
+          <span class="lbl" id="zoom-lbl"></span>
+          <button id="zoom-in" title="Zoom in (+)">+</button>
+        </div>
+      </div>
+      <div class="overview" id="overview"><canvas id="ov-canvas"></canvas></div>
+      <div class="timeline" id="timeline">
+        <div class="gutter" id="gutter"></div>
+        <div class="track" id="track">
+          <div class="ruler" id="ruler"></div>
+          <div class="rows" id="rows"></div>
+          <div class="wave" id="wave"><canvas id="wave-canvas"></canvas><span class="loading" id="loading">Reading the vocal stem…</span></div>
+          <div class="playhead" id="playhead"></div>
+        </div>
+      </div>
+      <div id="retap"></div>
+      <div class="hints" id="hints">
+        <span><kbd>Space</kbd> play</span>
+        <span><kbd>W</kbd> play selection</span>
+        <span><kbd>←</kbd><kbd>→</kbd> start</span>
+        <span><kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> end</span>
+        <span><kbd>Tab</kbd> next word</span>
+        <span><kbd>↑</kbd><kbd>↓</kbd> group</span>
+        <span><kbd>Shift</kbd>+click more words</span>
+        <span><kbd>G</kbd> new group</span>
+        <span><kbd>H</kbd> retap by holding</span>
+        <span><kbd>⌘Z</kbd> undo</span>
+      </div>
+    </main>
+
+    <aside class="inspector" id="inspector"></aside>
+  </div>
+
+  <footer class="transport">
+    <button class="play" id="play" aria-label="Play">
+      <svg id="play-icon" width="18" height="18" viewBox="0 0 18 18"><path d="M5 3.5v11l9-5.5z" fill="currentColor" /></svg>
+    </button>
+    <div class="clock"><span id="clock-now" style="font-size:22px;color:var(--text-1)">00:00.00</span> <span>/ <span id="clock-dur">00:00.00</span></span></div>
+    <div class="seg" id="speed" role="group" aria-label="Speed">
+      <button data-rate="0.5">0.5×</button><button data-rate="0.75">0.75×</button><button data-rate="1" aria-pressed="true">1×</button>
+    </div>
+    <button class="toggle" id="vocals-only" aria-pressed="false">Vocals only <kbd>V</kbd></button>
+    <span class="foot-note" id="foot-note">Word ends start out estimated from the vocal stem: each word ends where the voice drops out before the next word.</span>
+  </footer>
+</div>
+<div class="drag-tip" id="drag-tip"></div>
+<audio id="audio" preload="auto"></audio>
+
+<script type="module">
+// ─────────────────────────────────────────────────────────────── model
+// The format: words carry their own [start, end] interval; groups are flat lists of word ids with free labels.
+// Every word belongs to exactly one group. Groups may overlap in time.
+
+let meta = {};
+let words = new Map(); // id → { id, text, start, end, joinNext? }
+let groups = []; // { id, words: [id], labels: [string] }
+let seq = { w: 0, g: 0 };
+const sel = { words: new Set(), group: null, last: null };
+let view = { start: 0, span: 4000 };
+let durationMs = 0;
+let env = null; // vocal loudness per 10 ms frame, 0..1
+let thr = 0.05;
+let filter = null; // null = all, "" = no label, else a label
+let exportTab = "json";
+let retap = null;
+let refocusLabel = false;
+const history = [];
+const future = [];
+const labelColors = new Map();
+const PALETTE = ["#86bde0", "#b9a3f0", "#8fd0a0", "#f0a36b", "#e6a3c9", "#7fd1c7", "#d8c56f"];
+const NEUTRAL = "#8a8170";
+
+const $ = (s) => document.querySelector(s);
+const audio = $("#audio");
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+function labelColor(label) {
+  if (!labelColors.has(label)) labelColors.set(label, PALETTE[labelColors.size % PALETTE.length]);
+  return labelColors.get(label);
+}
+const groupColor = (g) => (g.labels.length ? labelColor(g.labels[0]) : NEUTRAL);
+const groupById = (id) => groups.find((g) => g.id === id);
+const groupOf = (wid) => groups.find((g) => g.words.includes(wid));
+
+function spanOf(g) {
+  let a = Infinity, b = -Infinity;
+  for (const id of g.words) {
+    const w = words.get(id);
+    if (w.start == null) continue;
+    a = Math.min(a, w.start);
+    b = Math.max(b, w.end ?? w.start);
+  }
+  return a === Infinity ? null : { start: a, end: b };
+}
+
+function groupText(g) {
+  return g.words.map((id, i) => {
+    const w = words.get(id);
+    return w.text + (w.joinNext || i === g.words.length - 1 ? "" : " ");
+  }).join("");
+}
+
+function ts(ms) {
+  if (ms == null) return "--:--.--";
+  const cs = Math.round(ms / 10);
+  const m = Math.floor(cs / 6000), s = Math.floor((cs % 6000) / 100), c = cs % 100;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(c).padStart(2, "0")}`;
+}
+const secs = (ms) => (ms / 1000).toFixed(2);
+
+// Groups in reading order: by start time; untimed ones last.
+function orderedGroups() {
+  return groups
+    .map((g) => ({ g, s: spanOf(g) }))
+    .sort((a, b) => (a.s?.start ?? Infinity) - (b.s?.start ?? Infinity))
+    .map((x) => x.g);
+}
+
+// The unlabelled group a labelled one belongs with: the last line that started by the time it starts.
+function hostOf(g) {
+  const s = spanOf(g);
+  if (!s) return null;
+  let host = null, hostStart = -Infinity, first = null, firstStart = Infinity;
+  for (const h of groups) {
+    if (h === g || h.labels.length) continue;
+    const hs = spanOf(h);
+    if (!hs) continue;
+    if (hs.start <= s.start && hs.start > hostStart) { hostStart = hs.start; host = h; }
+    if (hs.start < firstStart) { firstStart = hs.start; first = h; }
+  }
+  return host ?? first;
+}
+
+// ─────────────────────────────────────────────────────────────── history
+
+function snapshot() {
+  return JSON.stringify({ w: [...words.values()], g: groups, seq });
+}
+function restore(s) {
+  const o = JSON.parse(s);
+  words = new Map(o.w.map((w) => [w.id, w]));
+  groups = o.g;
+  seq = o.seq;
+  for (const id of [...sel.words]) if (!words.has(id)) sel.words.delete(id);
+  if (sel.group && !groupById(sel.group)) sel.group = groups[0]?.id ?? null;
+}
+function commit(label, mutate, before = snapshot()) {
+  mutate();
+  history.push(before);
+  if (history.length > 300) history.shift();
+  future.length = 0;
+  setStatus(label);
+  renderAll();
+}
+function undo() {
+  if (!history.length) return;
+  future.push(snapshot());
+  restore(history.pop());
+  setStatus("Undone");
+  renderAll();
+}
+function redo() {
+  if (!future.length) return;
+  history.push(snapshot());
+  restore(future.pop());
+  setStatus("Redone");
+  renderAll();
+}
+let statusTimer;
+function setStatus(text) {
+  $("#status").textContent = text;
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => ($("#status").textContent = ""), 3500);
+}
+
+// ─────────────────────────────────────────────────────────────── import (what "import from eLRC" would do)
+
+function importDraft(draft) {
+  const doc = draft.doc;
+  meta = doc.metadata;
+  const lines = doc.lines;
+  const nextLineStart = (i) => {
+    for (let j = i + 1; j < lines.length; j++) if (lines[j].timestamp != null) return lines[j].timestamp;
+    return null;
+  };
+  lines.forEach((line, li) => {
+    const g = { id: `g${++seq.g}`, words: [], labels: [] };
+    const lw = line.words ?? [{ start: line.timestamp, text: line.text }];
+    const lineLimit = line.end ?? nextLineStart(li) ?? (line.timestamp ?? 0) + 3000;
+    for (const w of lw) {
+      const parts = w.text.trim().split(/\s+/).filter(Boolean);
+      if (!parts.length) continue;
+      if (w.start == null) {
+        for (const p of parts) addWord(g, p, null, null);
+        continue;
+      }
+      // eLRC only knows starts: a word runs until the next one starts (joined words share it by length).
+      const later = lw.filter((x) => x.start != null && x.start > w.start).map((x) => x.start);
+      const to = later.length ? Math.min(...later) : Math.max(w.start + 200, lineLimit);
+      const total = parts.reduce((n, p) => n + p.length, 0);
+      let acc = 0;
+      for (const p of parts) {
+        const a = w.start + ((to - w.start) * acc) / total;
+        acc += p.length;
+        const b = w.start + ((to - w.start) * acc) / total;
+        addWord(g, p, Math.round(a), Math.round(b));
+      }
+    }
+    if (g.words.length) groups.push(g);
+  });
+}
+function addWord(g, text, start, end) {
+  const id = `w${++seq.w}`;
+  words.set(id, { id, text, start, end });
+  g.words.push(id);
+}
+
+// Ends from the vocal stem: trim the quiet before `limit` (the next word's start). Pauses inside a word
+// ("Ду- думал") stay; a gap under 60 ms is legato, so the word runs right up to the next one.
+function fitEnd(w, limit) {
+  if (!env || w.start == null || !(limit > w.start)) return;
+  limit = Math.round(limit);
+  const f0 = Math.floor(w.start / 10) + 4;
+  const f1 = Math.min(env.length, Math.floor(limit / 10));
+  let end = null;
+  for (let f = f1 - 1; f >= f0; f--) {
+    if (env[f] >= thr) { end = (f + 1) * 10; break; }
+  }
+  if (end === null) end = Math.min(limit, w.start + 150);
+  w.end = limit - end < 60 ? limit : Math.max(w.start + 40, end);
+}
+function fitGroup(g, useCurrentEnds) {
+  const timed = g.words.map((id) => words.get(id)).filter((w) => w.start != null).sort((a, b) => a.start - b.start);
+  timed.forEach((w, i) => {
+    const next = timed[i + 1];
+    const limit = useCurrentEnds ? w.end : next ? next.start : w.start + 1600;
+    fitEnd(w, limit);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────── edits
+
+function parenRuns(g) {
+  const runs = [];
+  let cur = null;
+  for (const id of g.words) {
+    const t = words.get(id).text;
+    if (!cur && t.startsWith("(")) cur = [];
+    if (cur) {
+      cur.push(id);
+      if (t.includes(")")) { runs.push(cur); cur = null; }
+    }
+  }
+  return runs;
+}
+const norm = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, "").replace(/\s+/g, " ").trim();
+function pendingParens() {
+  return groups.filter((g) => !g.labels.length).reduce((n, g) => n + parenRuns(g).length, 0);
+}
+
+function splitParens() {
+  let backing = 0, adlib = 0;
+  commit("Moved parentheses to their own groups", () => {
+    const created = [];
+    for (const g of groups) {
+      if (g.labels.length) continue;
+      for (const run of parenRuns(g)) {
+        const first = words.get(run[0]);
+        const last = words.get(run[run.length - 1]);
+        first.text = first.text.replace(/^\(/, "");
+        const idx = g.words.indexOf(run[0]);
+        const m = last.text.match(/^(.*)\)([^\p{L}\p{N}]*)$/u);
+        if (m) {
+          last.text = m[1];
+          // "разном)," — the comma belongs to the line, not to the backing vocal.
+          if (m[2].trim() && idx > 0) words.get(g.words[idx - 1]).text += m[2].trim();
+        }
+        const inRun = new Set(run);
+        const rest = g.words.filter((id) => !inRun.has(id));
+        const echo = norm(run.map((id) => words.get(id).text).join(" "));
+        const label = echo && norm(rest.map((id) => words.get(id).text).join(" ")).includes(echo) ? "backing" : "adlib";
+        label === "backing" ? backing++ : adlib++;
+        if (rest.length === 0) { g.labels = [label]; continue; }
+        g.words = rest;
+        created.push({ id: `g${++seq.g}`, words: run, labels: [label] });
+      }
+    }
+    groups.push(...created);
+  });
+  setStatus(`Split ${backing + adlib} parts: ${backing} “backing” (they echo the line), ${adlib} “adlib”. Rename labels any time.`);
+}
+
+function newGroupFromSelection() {
+  const ids = [...sel.words];
+  if (!ids.length) return setStatus("Select words first — click, Shift+click for more");
+  commit("New group", () => {
+    ids.sort((a, b) => (words.get(a).start ?? 0) - (words.get(b).start ?? 0));
+    const moving = new Set(ids);
+    for (const g of groups) g.words = g.words.filter((id) => !moving.has(id));
+    groups = groups.filter((g) => g.words.length);
+    const g = { id: `g${++seq.g}`, words: ids, labels: [] };
+    groups.push(g);
+    sel.group = g.id;
+  });
+  refocusLabel = true;
+  renderInspector();
+}
+
+function mergeIntoHost() {
+  const g = groupById(sel.group);
+  if (!g || !g.labels.length) return;
+  const host = hostOf(g);
+  if (!host) return;
+  commit("Merged back into the line", () => {
+    for (const id of g.words) {
+      const w = words.get(id);
+      const at = host.words.findIndex((h) => (words.get(h).start ?? Infinity) > (w.start ?? Infinity));
+      host.words.splice(at === -1 ? host.words.length : at, 0, id);
+    }
+    groups = groups.filter((x) => x !== g);
+    sel.group = host.id;
+  });
+}
+
+function addLabel(label) {
+  const g = groupById(sel.group);
+  label = label.trim();
+  if (!g || !label || g.labels.includes(label)) return;
+  commit(`Labelled “${label}”`, () => g.labels.push(label));
+}
+function removeLabel(label) {
+  const g = groupById(sel.group);
+  if (!g) return;
+  commit(`Removed “${label}”`, () => (g.labels = g.labels.filter((l) => l !== label)));
+}
+
+function targets() {
+  if (sel.words.size) return [...sel.words].map((id) => words.get(id));
+  const g = groupById(sel.group);
+  return g ? g.words.map((id) => words.get(id)) : [];
+}
+function nudge(delta, edge) {
+  const ws = targets().filter((w) => w.start != null);
+  if (!ws.length) return;
+  const single = sel.words.size === 1;
+  commit(single ? `Moved the ${edge} ${delta > 0 ? "+" : ""}${delta} ms` : `Shifted ${ws.length} words ${delta > 0 ? "+" : ""}${delta} ms`, () => {
+    for (const w of ws) {
+      if (!single) { w.start = Math.max(0, w.start + delta); w.end += delta; }
+      else if (edge === "start") w.start = clamp(w.start + delta, 0, w.end - 20);
+      else w.end = Math.max(w.start + 20, w.end + delta);
+    }
+  });
+  const w = ws[0];
+  ensureVisible(edge === "end" && single ? w.end : w.start);
+}
+
+function selectWord(id, additive = false) {
+  if (additive) {
+    sel.words.has(id) ? sel.words.delete(id) : sel.words.add(id);
+  } else {
+    sel.words = new Set([id]);
+  }
+  sel.last = id;
+  sel.group = groupOf(id)?.id ?? sel.group;
+  renderAll();
+}
+function selectGroup(id, frame = true) {
+  sel.words = new Set();
+  sel.group = id;
+  const s = spanOf(groupById(id));
+  if (frame && s) {
+    if (s.start < view.start || s.end > view.start + view.span) view.start = Math.max(0, s.start - view.span * 0.15);
+    if (!audio.paused) {} else audio.currentTime = s.start / 1000;
+  }
+  renderAll();
+  document.querySelector(".gl-item.selected")?.scrollIntoView({ block: "nearest" });
+}
+function stepWord(dir) {
+  const flat = orderedGroups().flatMap((g) => g.words);
+  let i = sel.last ? flat.indexOf(sel.last) : -1;
+  i = clamp(i + dir, 0, flat.length - 1);
+  const w = words.get(flat[i]);
+  selectWord(w.id);
+  if (w.start != null) {
+    ensureVisible(w.start);
+    if (audio.paused) audio.currentTime = w.start / 1000;
+  }
+}
+function stepGroup(dir) {
+  const list = visibleGroups();
+  const i = list.findIndex((g) => g.id === sel.group);
+  const next = list[clamp(i + dir, 0, list.length - 1)];
+  if (next) selectGroup(next.id);
+}
+function ensureVisible(t) {
+  if (t < view.start + view.span * 0.05 || t > view.start + view.span * 0.95) {
+    view.start = Math.max(0, t - view.span * 0.3);
+    renderTimeline();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────── playback
+
+let stopAt = null;
+function playSegment(a, b) {
+  audio.currentTime = Math.max(0, a / 1000);
+  stopAt = b;
+  audio.play();
+}
+function playSelection() {
+  const ws = targets().filter((w) => w.start != null);
+  if (!ws.length) return;
+  playSegment(Math.min(...ws.map((w) => w.start)) - 80, Math.max(...ws.map((w) => w.end)) + 120);
+}
+function togglePlay() {
+  stopAt = null;
+  audio.paused ? audio.play() : audio.pause();
+}
+function setRate(r) {
+  audio.playbackRate = r;
+  audio.preservesPitch = true;
+  for (const b of document.querySelectorAll("#speed button")) b.setAttribute("aria-pressed", String(Number(b.dataset.rate) === r));
+}
+function setVocalsOnly(on) {
+  const t = audio.currentTime, playing = !audio.paused, rate = audio.playbackRate;
+  audio.src = on ? "/vocals" : "/mix";
+  audio.currentTime = t;
+  audio.playbackRate = rate;
+  audio.preservesPitch = true;
+  if (playing) audio.play();
+  $("#vocals-only").setAttribute("aria-pressed", String(on));
+}
+
+// Retap: hold a key while each word sounds — press marks the start, release the end.
+function startRetap() {
+  const g = groupById(sel.group);
+  if (!g) return;
+  const s = spanOf(g);
+  const firstSel = sel.words.size === 1 ? g.words.indexOf([...sel.words][0]) : 0;
+  retap = { gid: g.id, i: Math.max(0, firstSel), holding: false, before: snapshot() };
+  if (audio.playbackRate === 1) setRate(0.75);
+  const from = words.get(g.words[retap.i])?.start ?? s?.start ?? audio.currentTime * 1000;
+  stopAt = null;
+  audio.currentTime = Math.max(0, (from - 1500) / 1000);
+  audio.play();
+  renderAll();
+}
+function retapDown() {
+  const g = groupById(retap.gid);
+  const w = words.get(g.words[retap.i]);
+  if (!w) return;
+  const t = audio.currentTime * 1000;
+  w.start = Math.round(t);
+  w.end = Math.round(t + 20);
+  retap.holding = true;
+  renderAll();
+}
+function retapUp() {
+  const g = groupById(retap.gid);
+  const w = words.get(g.words[retap.i]);
+  retap.holding = false;
+  if (w) w.end = Math.max(w.start + 40, Math.round(audio.currentTime * 1000));
+  retap.i++;
+  if (retap.i >= g.words.length) finishRetap();
+  else renderAll();
+}
+function retapBack() {
+  if (retap.i === 0) return;
+  retap.i--;
+  const g = groupById(retap.gid);
+  const w = words.get(g.words[retap.i]);
+  const back = w.start ?? audio.currentTime * 1000;
+  audio.currentTime = Math.max(0, (back - 1200) / 1000);
+  renderAll();
+}
+function finishRetap() {
+  const before = retap.before;
+  retap = null;
+  setTimeout(() => audio.pause(), 500);
+  commit("Retapped the group", () => {}, before);
+}
+function cancelRetap() {
+  restore(retap.before);
+  retap = null;
+  audio.pause();
+  setStatus("Retap cancelled");
+  renderAll();
+}
+
+// ─────────────────────────────────────────────────────────────── render: groups pane
+
+function visibleGroups() {
+  return orderedGroups().filter((g) => filter === null || (filter === "" ? !g.labels.length : g.labels.includes(filter)));
+}
+function matchesFilter(g) {
+  return filter === null || (filter === "" ? !g.labels.length : g.labels.includes(filter));
+}
+
+function renderSuggest() {
+  const n = pendingParens();
+  const el = $("#suggest");
+  if (!n) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="suggest"><p><b>${n} parts in parentheses</b> look like backing vocals and ad-libs sung over the line. Give them their own groups?</p>
+    <div class="row"><button class="btn primary" id="do-split">Split them out</button><button class="btn ghost" id="dismiss-split">Not now</button></div></div>`;
+  $("#do-split").onclick = splitParens;
+  $("#dismiss-split").onclick = () => (el.innerHTML = "");
+}
+
+function renderFilters() {
+  const counts = new Map();
+  let none = 0;
+  for (const g of groups) {
+    if (!g.labels.length) none++;
+    for (const l of g.labels) counts.set(l, (counts.get(l) ?? 0) + 1);
+  }
+  const el = $("#filters");
+  const btn = (value, text, n, color) =>
+    `<button class="filter" data-f="${value === null ? "__all" : value}" aria-pressed="${filter === value}">${color ? `<span class="dot" style="background:${color}"></span>` : ""}${text} <span class="n">${n}</span></button>`;
+  el.innerHTML = btn(null, "All", groups.length) + btn("", "No label", none) + [...counts].map(([l, n]) => btn(l, l, n, labelColor(l))).join("");
+  for (const b of el.querySelectorAll("button")) {
+    b.onclick = () => {
+      const f = b.dataset.f;
+      filter = f === "__all" ? null : f;
+      renderAll();
+    };
+  }
+  $("#group-count").textContent = `${groups.length} groups · ${words.size} words`;
+}
+
+function renderList() {
+  const el = $("#group-list");
+  const list = orderedGroups();
+  el.innerHTML = list.map((g) => {
+    const s = spanOf(g);
+    const guest = g.labels.length > 0;
+    const chips = g.labels.map((l) => `<span class="chip" style="--c:${labelColor(l)}">${esc(l)}</span>`).join("");
+    return `<li class="gl-item ${guest ? "guest" : ""} ${g.id === sel.group ? "selected" : ""} ${matchesFilter(g) ? "" : "dim"}" data-g="${g.id}">
+      <span class="t">${s ? ts(s.start).replace(/^00:/, "0:") : "—"}</span>${guest ? `<span class="arrow">↳</span>` : ""}
+      <span class="txt">${esc(groupText(g))}</span>${chips ? `<span class="chips">${chips}</span>` : ""}</li>`;
+  }).join("");
+  for (const li of el.querySelectorAll("li")) li.onclick = () => selectGroup(li.dataset.g);
+}
+
+// ─────────────────────────────────────────────────────────────── render: timeline
+
+const ROW_H = 58;
+let layout = { rows: new Map(), main: 1, count: 2 };
+
+function pack(items) {
+  const ends = [];
+  const out = new Map();
+  for (const { g, s } of items) {
+    let r = ends.findIndex((e) => e <= s.start);
+    if (r < 0) { r = ends.length; ends.push(-Infinity); }
+    ends[r] = Math.max(ends[r], s.end);
+    out.set(g.id, r);
+  }
+  return { out, n: ends.length };
+}
+// Lanes are packed from what's around the view, so an extra lane only shows up where groups actually overlap.
+function computeLayout() {
+  const from = view.start - view.span * 0.5, to = view.start + view.span * 1.5;
+  const items = groups.map((g) => ({ g, s: spanOf(g) })).filter((x) => x.s && x.s.end >= from && x.s.start <= to).sort((a, b) => a.s.start - b.s.start);
+  const main = pack(items.filter((x) => !x.g.labels.length));
+  const over = pack(items.filter((x) => x.g.labels.length));
+  const rows = new Map();
+  const mainN = Math.max(1, main.n);
+  for (const [id, r] of main.out) rows.set(id, r);
+  for (const [id, r] of over.out) rows.set(id, mainN + r);
+  layout = { rows, main: mainN, count: mainN + Math.max(1, over.n) };
+}
+
+const trackWidth = () => $("#ruler").clientWidth;
+const xOf = (t) => ((t - view.start) / view.span) * trackWidth();
+const tOf = (x) => view.start + (x / trackWidth()) * view.span;
+
+function renderTimeline() {
+  computeLayout();
+  const W = trackWidth();
+  const end = view.start + view.span;
+
+  // gutter
+  const gut = $("#gutter");
+  let gh = `<div class="g-ruler"></div>`;
+  for (let r = 0; r < layout.count; r++) {
+    const name = r < layout.main ? "Lines" : "Labelled";
+    gh += `<div class="g-row ${r === layout.main ? "first-overlay" : ""}" style="height:${ROW_H}px">${name}</div>`;
+  }
+  gut.innerHTML = gh + `<div class="g-wave">Vocals</div>`;
+
+  // ruler
+  const step = view.span <= 3000 ? 250 : view.span <= 9000 ? 500 : view.span <= 20000 ? 1000 : 2000;
+  const major = step * 2;
+  let rh = "";
+  for (let t = Math.ceil(view.start / step) * step; t <= end; t += step) {
+    const isMajor = t % major === 0;
+    rh += `<div class="tick ${isMajor ? "major" : ""}" style="left:${xOf(t)}px;height:${isMajor ? 10 : 5}px">${isMajor ? `<span>${(t / 1000).toFixed(t % 1000 ? 1 : 0)}s</span>` : ""}</div>`;
+  }
+  $("#ruler").innerHTML = rh;
+
+  // rows
+  const rowsEl = $("#rows");
+  rowsEl.style.height = `${layout.count * ROW_H}px`;
+  let html = "";
+  for (let r = 1; r < layout.count; r++) html += `<div class="row-line" style="top:${r * ROW_H}px;${r === layout.main ? "border-top-style:solid" : ""}"></div>`;
+  const nextWord = retap ? groupById(retap.gid)?.words[retap.i] : null;
+  for (const g of groups) {
+    const s = spanOf(g);
+    if (!s || s.end < view.start - 500 || s.start > end + 500) continue;
+    const starts = g.words.map((id) => words.get(id).start).filter((t) => t != null).sort((a, b) => a - b);
+    const r = layout.rows.get(g.id) ?? 0;
+    const top = r * ROW_H;
+    const c = groupColor(g);
+    const bl = xOf(s.start) - 5, bw = xOf(s.end) - xOf(s.start) + 10;
+    const num = orderedGroups().indexOf(g) + 1;
+    const chips = g.labels.map((l) => `<span class="chip" style="--c:${labelColor(l)}">${esc(l)}</span>`).join("");
+    html += `<div class="band ${g.id === sel.group ? "selected" : ""} ${matchesFilter(g) ? "" : "dim"}" data-g="${g.id}" style="--c:${c};left:${bl}px;width:${bw}px;top:${top + 3}px;height:${ROW_H - 6}px">
+      <span class="tag"><span class="num">${num}</span>${chips}</span></div>`;
+    for (const id of g.words) {
+      const w = words.get(id);
+      if (w.start == null) continue;
+      const x = xOf(w.start), wpx = Math.max(6, xOf(w.end) - x);
+      if (x + wpx < -20 || x > W + 20) continue;
+      const nextStart = starts.find((t) => t > w.start);
+      const room = Math.min(260, Math.max(wpx, nextStart != null ? xOf(nextStart) - x : 260)) - 10;
+      html += `<div class="word ${sel.words.has(id) ? "selected" : ""} ${id === nextWord ? "retap-next" : ""}" data-w="${id}" style="--c:${c};left:${x}px;width:${wpx}px;top:${top + 21}px" title="${esc(w.text)} · ${secs(w.start)} → ${secs(w.end)} (${((w.end - w.start) / 1000).toFixed(2)} s)">
+        <span class="h l" data-edge="start"></span>${room > 12 ? `<span class="lbl" style="max-width:${room}px">${esc(w.text)}</span>` : ""}<span class="h r" data-edge="end"></span></div>`;
+    }
+  }
+  rowsEl.innerHTML = html;
+  wordEls = [...rowsEl.querySelectorAll(".word")].map((el) => ({ el, w: words.get(el.dataset.w) }));
+  renderWave();
+  renderOverview();
+  $("#zoom-lbl").textContent = `${(view.span / 1000).toFixed(view.span < 10000 ? 1 : 0)} s view`;
+}
+let wordEls = [];
+
+function sizeCanvas(c) {
+  const r = c.getBoundingClientRect();
+  const dpr = devicePixelRatio || 1;
+  if (c.width !== Math.round(r.width * dpr) || c.height !== Math.round(r.height * dpr)) {
+    c.width = Math.round(r.width * dpr);
+    c.height = Math.round(r.height * dpr);
+  }
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w: r.width, h: r.height };
+}
+
+function renderWave() {
+  const { ctx, w, h } = sizeCanvas($("#wave-canvas"));
+  ctx.clearRect(0, 0, w, h);
+  // Selected words (or the group's) as bands, so ends can be checked against the voice.
+  const ws = targets().filter((x) => x.start != null);
+  for (const x of ws) {
+    const a = xOf(x.start), b = xOf(x.end);
+    ctx.fillStyle = sel.words.has(x.id) ? "rgba(240,180,76,0.13)" : "rgba(240,180,76,0.06)";
+    ctx.fillRect(a, 0, b - a, h);
+    ctx.fillStyle = "rgba(240,180,76,0.55)";
+    ctx.fillRect(a, 0, 1, h);
+    ctx.fillStyle = "rgba(240,124,149,0.55)";
+    ctx.fillRect(b - 1, 0, 1, h);
+  }
+  if (!env) return;
+  const mid = h / 2;
+  ctx.fillStyle = "#86bde0";
+  for (let px = 0; px < w; px += 2) {
+    const f0 = Math.floor(tOf(px) / 10), f1 = Math.max(f0 + 1, Math.floor(tOf(px + 2) / 10));
+    let v = 0;
+    for (let f = f0; f < f1; f++) if (f >= 0 && f < env.length) v = Math.max(v, env[f]);
+    const bar = Math.max(0.5, v * (h / 2 - 6));
+    ctx.globalAlpha = v < thr ? 0.35 : 0.9;
+    ctx.fillRect(px, mid - bar, 1.4, bar * 2);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function renderOverview() {
+  const { ctx, w, h } = sizeCanvas($("#ov-canvas"));
+  ctx.clearRect(0, 0, w, h);
+  if (!durationMs) return;
+  const x = (t) => (t / durationMs) * w;
+  if (env) {
+    ctx.fillStyle = "#3d382f";
+    for (let px = 0; px < w; px += 2) {
+      const f0 = Math.floor((px / w) * durationMs / 10), f1 = Math.floor(((px + 2) / w) * durationMs / 10);
+      let v = 0;
+      for (let f = f0; f < f1 && f < env.length; f++) v = Math.max(v, env[f]);
+      const bar = v * (h - 8);
+      ctx.fillRect(px, h - 4 - bar, 1.4, bar);
+    }
+  }
+  for (const g of groups) {
+    const s = spanOf(g);
+    if (!s) continue;
+    const y = g.labels.length ? 14 : 5;
+    ctx.fillStyle = g.id === sel.group ? "#f0b44c" : groupColor(g);
+    ctx.globalAlpha = matchesFilter(g) ? 0.9 : 0.25;
+    ctx.fillRect(x(s.start), y, Math.max(2, x(s.end) - x(s.start) - 1), 4);
+  }
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = "rgba(239,232,218,0.55)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x(view.start) + 0.5, 0.5, x(view.span), h - 1);
+}
+
+// ─────────────────────────────────────────────────────────────── render: inspector
+
+function renderInspector() {
+  const el = $("#inspector");
+  if (el.contains(document.activeElement) && document.activeElement.classList.contains("word-text")) return;
+  const g = groupById(sel.group);
+  let html = "";
+
+  if (sel.words.size === 1) {
+    const w = words.get([...sel.words][0]);
+    const dur = w.start != null ? ((w.end - w.start) / 1000).toFixed(2) : "—";
+    const nextW = nextInTime(w);
+    const gap = nextW && w.end != null ? nextW.start - w.end : null;
+    html += `<section class="section">
+      <p class="eyebrow">Word</p>
+      <input class="word-text" id="word-text" value="${esc(w.text)}" spellcheck="false" />
+      <div class="times">
+        ${timeBox("start", "Start", w.start, "← →")}
+        ${timeBox("end", "End", w.end, "Alt ← →")}
+      </div>
+      <div class="meta-row"><span>Sounds <b>${dur} s</b></span>${gap == null ? "" : gap === 0 ? `<span>Runs straight into the next word</span>` : `<span>${gap > 0 ? "Pause" : "Overlap"} before the next <b>${Math.abs(gap)} ms</b></span>`}</div>
+      <div class="actions">
+        <button class="btn" data-act="play">Play word <kbd>W</kbd></button>
+        <button class="btn" data-act="fit">Fit end to voice <kbd>F</kbd></button>
+        <button class="btn wide" data-act="newgroup">Move to a new group <kbd>G</kbd></button>
+      </div>
+    </section>`;
+  } else if (sel.words.size > 1) {
+    const ws = [...sel.words].map((id) => words.get(id));
+    html += `<section class="section">
+      <p class="eyebrow">${ws.length} words selected</p>
+      <h2>${esc(ws.sort((a, b) => (a.start ?? 0) - (b.start ?? 0)).map((w) => w.text).join(" "))}</h2>
+      <p class="note">Arrows shift them together. A new group takes them out of their current groups — every word lives in exactly one.</p>
+      <div class="actions">
+        <button class="btn primary wide" data-act="newgroup">New group from these words <kbd>G</kbd></button>
+        <button class="btn" data-act="play">Play <kbd>W</kbd></button>
+        <button class="btn" data-act="clearsel">Clear <kbd>Esc</kbd></button>
+      </div>
+    </section>`;
+  }
+
+  if (g) {
+    const s = spanOf(g);
+    const num = orderedGroups().indexOf(g) + 1;
+    const all = [...new Set(groups.flatMap((x) => x.labels))].filter((l) => !g.labels.includes(l));
+    const host = g.labels.length ? hostOf(g) : null;
+    const others = groups.filter((x) => x !== g && overlaps(x, g)).length;
+    html += `<section class="section">
+      <p class="eyebrow">Group ${num}${s ? ` · ${ts(s.start)} – ${ts(s.end)}` : ""}</p>
+      <div class="group-words">${g.words.map((id) => `<span data-w="${id}" class="${sel.words.has(id) ? "selected" : ""}">${esc(words.get(id).text)}</span>`).join("")}</div>
+      <div class="labels">
+        ${g.labels.map((l) => `<span class="chip" style="--c:${labelColor(l)}">${esc(l)}<button data-rm="${esc(l)}" aria-label="Remove ${esc(l)}">×</button></span>`).join("")}
+        <input class="label-input" id="label-input" placeholder="${g.labels.length ? "Another label…" : "Add a label — any word"}" list="label-list" />
+      </div>
+      ${all.length ? `<div class="label-sugg">In use: ${all.map((l) => `<span class="chip" data-add="${esc(l)}" style="--c:${labelColor(l)}">${esc(l)}</span>`).join("")}</div>` : ""}
+      <p class="note">${g.labels.length
+        ? `Sits on its own lane. ${host ? `Exports into group ${orderedGroups().indexOf(host) + 1} in parentheses.` : ""}`
+        : `No label: this is a regular line.`}${others ? ` Overlaps ${others} other group${others > 1 ? "s" : ""}.` : ""}</p>
+      <div class="actions">
+        <button class="btn" data-act="playgroup">Play group <kbd>W</kbd></button>
+        <button class="btn" data-act="retap">Retap by holding <kbd>H</kbd></button>
+        <button class="btn" data-act="fitgroup">Fit ends to voice <kbd>F</kbd></button>
+        ${g.labels.length ? `<button class="btn" data-act="merge">Back into the line <kbd>⇧G</kbd></button>` : ""}
+      </div>
+    </section>`;
+
+    html += `<section class="section">
+      <p class="eyebrow">What gets saved</p>
+      <div class="tabs">
+        ${["json", "elrc", "lrc"].map((t) => `<button data-tab="${t}" aria-pressed="${exportTab === t}">${{ json: "lrcgen JSON", elrc: "eLRC export", lrc: "LRC export" }[t]}</button>`).join("")}
+      </div>
+      <pre class="code ${exportTab === "json" ? "" : "wrap"}">${exportTab === "json" ? jsonFor(g) : exportLine(host ?? g, exportTab)}</pre>
+      <p class="note">${exportTab === "json"
+        ? "The source of truth. Stable ids, so an agent can point at any word or group."
+        : exportTab === "elrc"
+          ? "eLRC has no word ends: a pause is written as an empty timestamp <span style='color:var(--warn-soft)'>&lt;…&gt;</span>, labelled groups go into their line in parentheses."
+          : "Plain LRC keeps only the line start."}</p>
+    </section>`;
+  }
+
+  el.innerHTML = html;
+  const label = $("#label-input");
+  if (label) {
+    label.onkeydown = (e) => {
+      if (e.key === "Enter" && label.value.trim()) {
+        e.preventDefault();
+        refocusLabel = true;
+        addLabel(label.value);
+      } else if (e.key === "Escape") label.blur();
+      else if (e.key === "Backspace" && !label.value && g.labels.length) {
+        refocusLabel = true;
+        removeLabel(g.labels[g.labels.length - 1]);
+      }
+      e.stopPropagation();
+    };
+    if (refocusLabel) { refocusLabel = false; label.focus(); }
+  }
+  const wt = $("#word-text");
+  if (wt) {
+    const w = words.get([...sel.words][0]);
+    const save = () => { if (wt.value.trim() && wt.value.trim() !== w.text) commit("Renamed the word", () => (w.text = wt.value.trim())); };
+    wt.onkeydown = (e) => { if (e.key === "Enter" || e.key === "Escape") { if (e.key === "Escape") wt.value = w.text; wt.blur(); } e.stopPropagation(); };
+    wt.onblur = () => { save(); renderAll(); };
+  }
+  for (const b of el.querySelectorAll("[data-rm]")) b.onclick = () => removeLabel(b.dataset.rm);
+  for (const b of el.querySelectorAll("[data-add]")) b.onclick = () => addLabel(b.dataset.add);
+  for (const b of el.querySelectorAll("[data-tab]")) b.onclick = () => { exportTab = b.dataset.tab; renderInspector(); };
+  for (const s of el.querySelectorAll(".group-words span")) s.onclick = (e) => selectWord(s.dataset.w, e.shiftKey || e.metaKey);
+  for (const b of el.querySelectorAll("[data-nudge]")) b.onclick = () => {
+    const [edge, d] = b.dataset.nudge.split(":");
+    nudge(Number(d), edge);
+  };
+  for (const b of el.querySelectorAll("[data-act]")) b.onclick = () => ACTIONS[b.dataset.act]();
+}
+const ACTIONS = {
+  play: playSelection,
+  playgroup: () => { const keep = sel.words; sel.words = new Set(); playSelection(); sel.words = keep; },
+  newgroup: newGroupFromSelection,
+  clearsel: () => { sel.words = new Set(); renderAll(); },
+  merge: mergeIntoHost,
+  retap: startRetap,
+  fit: () => fitSelection(),
+  fitgroup: () => { const keep = sel.words; sel.words = new Set(); fitSelection(); sel.words = keep; renderAll(); },
+};
+function fitSelection() {
+  if (!env) return setStatus("Still reading the vocal stem");
+  if (sel.words.size) {
+    commit("Fitted the end to the voice", () => {
+      for (const id of sel.words) {
+        const w = words.get(id);
+        const n = nextInTime(w, groupOf(id));
+        fitEnd(w, n ? n.start : w.start + 1600);
+      }
+    });
+  } else {
+    const g = groupById(sel.group);
+    if (g) commit("Fitted the ends to the voice", () => fitGroup(g, false));
+  }
+}
+function nextInTime(w, g = groupOf(w.id)) {
+  if (!g || w.start == null) return null;
+  return g.words.map((id) => words.get(id)).filter((x) => x.start != null && x.start > w.start).sort((a, b) => a.start - b.start)[0] ?? null;
+}
+function overlaps(a, b) {
+  const sa = spanOf(a), sb = spanOf(b);
+  return sa && sb && Math.min(sa.end, sb.end) > Math.max(sa.start, sb.start);
+}
+function timeBox(edge, label, value, keys) {
+  const steps = [-100, -10, 10, 100];
+  return `<div class="time-box"><label>${label}<span>${keys}</span></label><div class="v">${ts(value)}</div>
+    <div class="nudges">${steps.map((d) => `<button data-nudge="${edge}:${d}">${d > 0 ? "+" : "−"}${Math.abs(d)}</button>`).join("")}</div></div>`;
+}
+
+function jsonFor(g) {
+  const k = (s) => `<span class="k">"${s}"</span>`;
+  const str = (s) => `<span class="s">${esc(JSON.stringify(s))}</span>`;
+  const num = (n) => `<span class="n">${n}</span>`;
+  const wline = (w) => `    { ${k("id")}: ${str(w.id)}, ${k("text")}: ${str(w.text)}, ${k("start")}: ${num(w.start)}, ${k("end")}: ${num(w.end)}${w.joinNext ? `, ${k("joinNext")}: true` : ""} }`;
+  return `{
+  ${k("groups")}: [
+    { ${k("id")}: ${str(g.id)}, ${k("labels")}: [${g.labels.map(str).join(", ")}],
+      ${k("words")}: [${g.words.map(str).join(", ")}] }
+  ],
+  ${k("words")}: [
+${g.words.map((id) => wline(words.get(id))).join(",\n")}
+  ]
+}`;
+}
+
+// A line for eLRC / LRC: the group plus the labelled groups it hosts, in parentheses.
+function exportLine(host, mode) {
+  const guests = groups.filter((g) => g.labels.length && g !== host && hostOf(g) === host);
+  const items = [
+    ...host.words.map((id, i) => ({ w: words.get(id), g: host, i })),
+    ...guests.flatMap((g) => g.words.map((id, i) => ({ w: words.get(id), g, i }))),
+  ].filter((x) => x.w.start != null).sort((a, b) => a.w.start - b.w.start);
+  if (!items.length) return esc(groupText(host));
+  const T = (ms) => `<span class="ts">&lt;${ts(ms)}&gt;</span>`;
+  let out = `<span class="ts">[${ts(items[0].w.start)}]</span>`;
+  items.forEach((it, i) => {
+    const prev = items[i - 1], next = items[i + 1];
+    const guest = it.g !== host;
+    const open = guest && (!prev || prev.g !== it.g);
+    const close = guest && (!next || next.g !== it.g);
+    if (mode === "elrc") out += T(it.w.start);
+    out += esc((open ? "(" : "") + it.w.text + (close ? ")" : ""));
+    if (next) {
+      if (mode === "elrc" && next.w.start - it.w.end >= 120) out += ` <span class="gap">&lt;${ts(it.w.end)}&gt;</span>`;
+      out += " ";
+    } else if (mode === "elrc") out += " " + T(it.w.end);
+  });
+  const note = host !== groupById(sel.group) ? `\n\n<span style="color:var(--muted-1)">// this group has a label, so it goes into\n// group ${orderedGroups().indexOf(host) + 1}'s line</span>` : "";
+  return out + note;
+}
+
+// ─────────────────────────────────────────────────────────────── render: rest
+
+function renderRetap() {
+  const el = $("#retap");
+  if (!retap) { el.innerHTML = ""; $("#hints").style.display = ""; return; }
+  $("#hints").style.display = "none";
+  const g = groupById(retap.gid);
+  el.innerHTML = `<div class="retap">
+    <div class="words">${g.words.map((id, i) => {
+      const w = words.get(id);
+      const cls = i < retap.i ? "done" : i === retap.i ? (retap.holding ? "cur holding" : "cur") : "";
+      return `<span class="rw ${cls}">${esc(w.text)}<small>${i < retap.i || (i === retap.i && retap.holding) ? `${secs(w.start)} → ${retap.holding && i === retap.i ? "…" : secs(w.end)}` : "&nbsp;"}</small></span>`;
+    }).join("")}</div>
+    <button class="btn" id="retap-cancel">Cancel <kbd>Esc</kbd></button>
+    <div class="how"><span><kbd>Enter</kbd> hold while the word sounds — press marks the start, release marks the end</span><span><kbd>Backspace</kbd> redo the previous word</span><span>Plays at ${audio.playbackRate}× from 1.5 s before</span></div>
+  </div>`;
+  $("#retap-cancel").onclick = cancelRetap;
+}
+
+function renderHeader() {
+  const g = groupById(sel.group);
+  const num = g ? orderedGroups().indexOf(g) + 1 : "";
+  const s = g && spanOf(g);
+  $("#cur-no").textContent = g ? `Group ${num} · ${s ? ts(s.start) : "no start yet"}` : "";
+  $("#cur-text").textContent = g ? groupText(g) : "";
+}
+
+function renderAll() {
+  renderHeader();
+  renderSuggest();
+  renderFilters();
+  renderList();
+  renderTimeline();
+  renderInspector();
+  renderRetap();
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
+// ─────────────────────────────────────────────────────────────── pointer
+
+const tip = $("#drag-tip");
+let drag = null;
+$("#rows").addEventListener("pointerdown", (e) => {
+  const wordEl = e.target.closest(".word");
+  const band = e.target.closest(".band");
+  if (wordEl) {
+    const w = words.get(wordEl.dataset.w);
+    const edge = e.target.dataset.edge ?? "move";
+    drag = { w, edge, x0: e.clientX, s0: w.start, e0: w.end, before: snapshot(), moved: false, additive: e.shiftKey || e.metaKey };
+    wordEl.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  } else if (band) {
+    selectGroup(band.dataset.g, false);
+  } else {
+    const rect = $("#rows").getBoundingClientRect();
+    audio.currentTime = Math.max(0, tOf(e.clientX - rect.left) / 1000);
+    sel.words = new Set();
+    renderAll();
+  }
+});
+window.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x0;
+  if (!drag.moved && Math.abs(dx) < 3) return;
+  if (!drag.moved) {
+    drag.moved = true;
+    if (!sel.words.has(drag.w.id) || sel.words.size > 1) { sel.words = new Set([drag.w.id]); sel.group = groupOf(drag.w.id)?.id; }
+  }
+  const dt = Math.round(((dx / trackWidth()) * view.span) / 10) * 10;
+  const w = drag.w;
+  if (drag.edge === "start") w.start = clamp(drag.s0 + dt, 0, w.end - 20);
+  else if (drag.edge === "end") w.end = Math.max(w.start + 20, drag.e0 + dt);
+  else { w.start = Math.max(0, drag.s0 + dt); w.end = w.start + (drag.e0 - drag.s0); }
+  tip.style.display = "block";
+  tip.style.left = `${e.clientX + 12}px`;
+  tip.style.top = `${e.clientY - 30}px`;
+  tip.textContent = drag.edge === "end" ? `end ${secs(w.end)}` : drag.edge === "start" ? `start ${secs(w.start)}` : `${secs(w.start)} → ${secs(w.end)}`;
+  renderTimeline();
+  renderInspector();
+});
+window.addEventListener("pointerup", () => {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  tip.style.display = "none";
+  if (d.moved) {
+    const label = d.edge === "start" ? "Moved the start" : d.edge === "end" ? "Moved the end" : "Moved the word";
+    commit(label, () => {}, d.before);
+  } else {
+    selectWord(d.w.id, d.additive);
+  }
+});
+$("#rows").addEventListener("dblclick", (e) => {
+  const wordEl = e.target.closest(".word");
+  if (!wordEl) return;
+  const w = words.get(wordEl.dataset.w);
+  playSegment(w.start - 80, w.end + 120);
+});
+for (const id of ["#ruler", "#wave"]) {
+  $(id).addEventListener("pointerdown", (e) => {
+    const rect = $(id).getBoundingClientRect();
+    audio.currentTime = Math.max(0, tOf(e.clientX - rect.left) / 1000);
+  });
+}
+$("#overview").addEventListener("pointerdown", (e) => {
+  const rect = $("#overview").getBoundingClientRect();
+  const t = ((e.clientX - rect.left) / rect.width) * durationMs;
+  view.start = clamp(t - view.span / 2, 0, Math.max(0, durationMs - view.span));
+  renderTimeline();
+});
+$("#timeline").addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (e.ctrlKey || e.metaKey) {
+    const rect = $("#ruler").getBoundingClientRect();
+    const anchor = tOf(e.clientX - rect.left);
+    const span = clamp(view.span * Math.exp(e.deltaY * 0.01), 1500, 60000);
+    view.start = Math.max(0, anchor - ((anchor - view.start) / view.span) * span);
+    view.span = span;
+  } else {
+    const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    view.start = clamp(view.start + (d / trackWidth()) * view.span, 0, Math.max(0, durationMs - view.span * 0.5));
+  }
+  renderTimeline();
+}, { passive: false });
+function zoom(dir) {
+  const presets = [2000, 4000, 8000, 16000, 32000];
+  const i = presets.findIndex((p) => p >= view.span - 1);
+  const span = presets[clamp((i < 0 ? presets.length - 1 : i) + dir, 0, presets.length - 1)];
+  const anchor = audio.currentTime * 1000 >= view.start && audio.currentTime * 1000 <= view.start + view.span ? audio.currentTime * 1000 : view.start + view.span / 2;
+  view.start = Math.max(0, anchor - ((anchor - view.start) / view.span) * span);
+  view.span = span;
+  renderTimeline();
+}
+$("#zoom-in").onclick = () => zoom(-1);
+$("#zoom-out").onclick = () => zoom(1);
+
+// ─────────────────────────────────────────────────────────────── keys
+
+window.addEventListener("keydown", (e) => {
+  if (e.target.closest?.("input")) return;
+  const mod = e.metaKey || e.ctrlKey;
+  if (retap) {
+    if (e.key === "Enter") { e.preventDefault(); if (!e.repeat && !retap.holding) retapDown(); }
+    else if (e.key === "Escape") { e.preventDefault(); cancelRetap(); }
+    else if (e.key === "Backspace") { e.preventDefault(); retapBack(); }
+    else if (e.key === " ") { e.preventDefault(); togglePlay(); }
+    return;
+  }
+  if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod) return;
+  const k = e.key;
+  const handled = (() => {
+    switch (k) {
+      case " ": togglePlay(); return true;
+      case "ArrowLeft": nudge(e.shiftKey ? -100 : -10, e.altKey ? "end" : "start"); return true;
+      case "ArrowRight": nudge(e.shiftKey ? 100 : 10, e.altKey ? "end" : "start"); return true;
+      case "ArrowUp": stepGroup(-1); return true;
+      case "ArrowDown": stepGroup(1); return true;
+      case "Tab": stepWord(e.shiftKey ? -1 : 1); return true;
+      case "Escape": if (sel.words.size) { sel.words = new Set(); renderAll(); } return true;
+      case "+": case "=": zoom(-1); return true;
+      case "-": zoom(1); return true;
+    }
+    switch (e.code) {
+      case "KeyW": playSelection(); return true;
+      case "KeyG": e.shiftKey ? mergeIntoHost() : newGroupFromSelection(); return true;
+      case "KeyH": startRetap(); return true;
+      case "KeyF": fitSelection(); return true;
+      case "KeyV": setVocalsOnly($("#vocals-only").getAttribute("aria-pressed") !== "true"); return true;
+      case "KeyL": $("#label-input")?.focus(); return true;
+    }
+    return false;
+  })();
+  if (handled) e.preventDefault();
+});
+window.addEventListener("keyup", (e) => {
+  if (retap && e.key === "Enter" && retap.holding) { e.preventDefault(); retapUp(); }
+});
+
+$("#play").onclick = togglePlay;
+for (const b of document.querySelectorAll("#speed button")) b.onclick = () => setRate(Number(b.dataset.rate));
+$("#vocals-only").onclick = () => setVocalsOnly($("#vocals-only").getAttribute("aria-pressed") !== "true");
+$("#copy-doc").onclick = async () => {
+  const doc = {
+    format: "lrcgen",
+    version: 1,
+    metadata: meta,
+    words: [...words.values()].map(({ id, text, start, end, joinNext }) => ({ id, text, start, end, ...(joinNext ? { joinNext } : {}) })),
+    groups: orderedGroups().map(({ id, words, labels }) => ({ id, words, labels })),
+  };
+  await navigator.clipboard.writeText(JSON.stringify(doc, null, 2));
+  setStatus("Copied the document");
+};
+
+// ─────────────────────────────────────────────────────────────── frame loop
+
+audio.addEventListener("play", () => ($("#play-icon").innerHTML = `<path d="M5 3.5h3v11H5zM10 3.5h3v11h-3z" fill="currentColor"/>`));
+audio.addEventListener("pause", () => ($("#play-icon").innerHTML = `<path d="M5 3.5v11l9-5.5z" fill="currentColor"/>`));
+audio.addEventListener("loadedmetadata", () => {
+  if (!durationMs) {
+    durationMs = audio.duration * 1000;
+    $("#clock-dur").textContent = ts(durationMs);
+    renderOverview();
+  }
+});
+function frame() {
+  const t = audio.currentTime * 1000;
+  if (stopAt != null && t >= stopAt) { audio.pause(); stopAt = null; }
+  if (retap?.holding) {
+    const g = groupById(retap.gid);
+    const w = words.get(g.words[retap.i]);
+    if (w) {
+      w.end = Math.max(w.start + 20, Math.round(t));
+      renderTimeline();
+      renderRetap();
+    }
+  }
+  if (!audio.paused && !drag && (t > view.start + view.span * 0.92 || t < view.start)) {
+    view.start = Math.max(0, t - view.span * 0.08);
+    renderTimeline();
+  }
+  const ph = $("#playhead");
+  const x = xOf(t);
+  ph.style.display = x < 0 || x > trackWidth() ? "none" : "block";
+  ph.style.left = `${x}px`;
+  for (const { el, w } of wordEls) el.classList.toggle("sung", !audio.paused && w.start <= t && t < w.end);
+  $("#clock-now").textContent = ts(t);
+  requestAnimationFrame(frame);
+}
+
+// ─────────────────────────────────────────────────────────────── boot
+
+async function loadVocals() {
+  try {
+    const buf = await (await fetch("/vocals")).arrayBuffer();
+    const ctx = new OfflineAudioContext(1, 1, 44100);
+    const audioBuf = await ctx.decodeAudioData(buf);
+    const hop = Math.round(audioBuf.sampleRate / 100);
+    const chans = [...Array(audioBuf.numberOfChannels)].map((_, i) => audioBuf.getChannelData(i));
+    const n = Math.floor(audioBuf.length / hop);
+    const e = new Float32Array(n);
+    for (let f = 0; f < n; f++) {
+      let sum = 0;
+      for (const ch of chans) for (let i = f * hop; i < (f + 1) * hop; i++) sum += ch[i] * ch[i];
+      e[f] = Math.sqrt(sum / (hop * chans.length));
+    }
+    const sorted = Float32Array.from(e).sort();
+    const ref = sorted[Math.floor(sorted.length * 0.97)] || 1;
+    for (let f = 0; f < n; f++) e[f] = Math.min(1, e[f] / ref);
+    env = e;
+    thr = 0.12;
+    if (!durationMs) durationMs = audioBuf.duration * 1000;
+    $("#loading").remove();
+    return true;
+  } catch (err) {
+    $("#loading").textContent = "No vocal stem — ends stay at the next word's start";
+    return false;
+  }
+}
+
+const draft = await (await fetch("/draft.json")).json();
+importDraft(draft);
+$("#song-title").textContent = meta.title ?? "Untitled";
+$("#song-sub").textContent = [meta.artist, meta.album].filter(Boolean).join(" · ");
+audio.src = "/mix";
+setRate(1);
+sel.group = orderedGroups()[0]?.id ?? null;
+const s0 = spanOf(groupById(sel.group));
+view.start = Math.max(0, (s0?.start ?? 0) - 600);
+renderAll();
+requestAnimationFrame(frame);
+if (await loadVocals()) {
+  for (const g of groups) fitGroup(g, true);
+  $("#clock-dur").textContent = ts(durationMs);
+  setStatus("Imported from eLRC · word ends fitted to the vocal stem");
+  renderAll();
+}
+window.addEventListener("resize", () => renderTimeline());
+</script>
+</body>
+</html>

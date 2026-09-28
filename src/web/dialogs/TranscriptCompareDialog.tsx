@@ -3,7 +3,7 @@
 // use the transcription instead.
 
 import { useState } from "react";
-import { hasWordTimings, type LrcLine } from "../../core/lrc-document";
+import { groupText, hasWordTimings, isTimed, type Group } from "../../core/lyrics";
 import { Button, RadioCard } from "../components/controls";
 import { DialogHeader, Modal } from "../components/Modal";
 import type { HotkeyMap } from "../hotkeys/hotkeys";
@@ -41,8 +41,8 @@ export function TranscriptCompareDialog() {
       </p>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Summary title="Yours" lines={doc.lines} />
-        <Summary title="Transcription" lines={transcript.lines} />
+        <Summary title="Yours" groups={doc.groups} />
+        <Summary title="Transcription" groups={transcript.groups} />
       </div>
 
       <fieldset style={{ margin: 0, padding: 0, border: "none", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -61,7 +61,7 @@ export function TranscriptCompareDialog() {
           checked={choice === "replace"}
           onChange={() => setChoice("replace")}
           label="Use the transcription"
-          description={`Replace your lines and timings with the transcription's ${plural(transcript.lines.length, "line")}.`}
+          description={`Replace your lines and timings with the transcription's ${plural(transcript.groups.length, "line")}.`}
         />
         <RadioCard
           name="transcript-choice"
@@ -84,18 +84,18 @@ export function TranscriptCompareDialog() {
   );
 }
 
-function Summary({ title, lines }: { title: string; lines: LrcLine[] }) {
-  const timed = lines.filter((l) => l.timestamp !== null).length;
-  const words = lines.filter(hasWordTimings).length;
+function Summary({ title, groups }: { title: string; groups: Group[] }) {
+  const timed = groups.filter(isTimed).length;
+  const words = groups.filter(hasWordTimings).length;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "12px 14px", borderRadius: 10, background: "var(--raised-2)", border: "1px solid var(--border-2)" }}>
       <span className="eyebrow">{title}</span>
-      <span style={{ fontSize: 14 }}>{plural(lines.length, "line")}</span>
+      <span style={{ fontSize: 14 }}>{plural(groups.length, "line")}</span>
       <span style={{ fontSize: 13, color: "var(--text-3)" }}>
         {timed} timed · {words} with word timings
       </span>
       <span className="ellipsis" style={{ fontSize: 13, color: "var(--text-4)", marginTop: 4 }}>
-        {lines[0]?.text ?? "—"}
+        {groups[0] ? groupText(groups[0]) : "—"}
       </span>
     </div>
   );

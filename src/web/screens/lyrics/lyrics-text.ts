@@ -1,9 +1,9 @@
-// Turning lyrics text (pasted, loaded from a file, or from LRCLIB) into document lines.
+// Turning lyrics text (pasted, loaded from a file, or from LRCLIB) into document groups.
 
-import type { LrcLine } from "../../../core/lrc-document";
-import { hasWordTimings, linesFromText } from "../../../core/lrc-document";
-import { LRC_TIME_PATTERN } from "../../../core/time-utils";
 import { SimpleLrcParser } from "../../../adapters/lrc-parser/simple-lrc-parser";
+import { groupsFromText, hasWordTimings, isTimed, withStart, type Group } from "../../../core/lyrics";
+import { isLyricsFilePath, parseLyricsFile } from "../../../core/lyrics-file";
+import { LRC_TIME_PATTERN } from "../../../core/time-utils";
 import type { TimingLevel } from "../../../shared/api";
 
 const TIMED_LINE = new RegExp(String.raw`^\s*\[${LRC_TIME_PATTERN}\]`, "m");
@@ -14,31 +14,39 @@ export function looksLikeLrc(text: string): boolean {
 }
 
 export interface ParsedLyrics {
-  lines: LrcLine[];
+  groups: Group[];
   timing: TimingLevel;
 }
 
 /**
- * LRC text keeps its line (and word) timings; anything else is split at line breaks.
- * `lrc` forces the LRC parser (a .lrc file), which also drops [ar:…]-style tags.
+ * An lrcgen lyrics file keeps everything; LRC text keeps its line (and word) timings; anything else is split at line
+ * breaks. `lrc` forces the LRC parser (a .lrc file), which also drops [ar:…]-style tags. `name` is the file's name.
  */
-export function parseLyricsText(text: string, options: { lrc?: boolean } = {}): ParsedLyrics {
-  const lines = options.lrc || looksLikeLrc(text) ? new SimpleLrcParser().parse(text).lines : linesFromText(text);
-  return { lines, timing: timingOf(lines) };
+export function parseLyricsText(text: string, options: { lrc?: boolean; name?: string } = {}): ParsedLyrics {
+  if (options.name && isLyricsFilePath(options.name)) {
+    try {
+      const groups = parseLyricsFile(text).groups;
+      return { groups, timing: timingOf(groups) };
+    } catch {
+      return { groups: [], timing: "none" };
+    }
+  }
+  const groups = options.lrc || looksLikeLrc(text) ? new SimpleLrcParser().parse(text).groups : groupsFromText(text);
+  return { groups, timing: timingOf(groups) };
 }
 
-export function timingOf(lines: LrcLine[]): TimingLevel {
-  if (lines.some(hasWordTimings)) return "words";
-  if (lines.some((l) => l.timestamp !== null)) return "lines";
+export function timingOf(groups: Group[]): TimingLevel {
+  if (groups.some(hasWordTimings)) return "words";
+  if (groups.some(isTimed)) return "lines";
   return "none";
 }
 
-/** Text only: no timings, and no empty lines (in LRC those only mark where a phrase ends). */
-export function stripTimings(lines: LrcLine[]): LrcLine[] {
-  return lines.filter((l) => l.text.trim() !== "").map((l) => ({ timestamp: null, text: l.text }));
+/** Text only: the same groups (and labels) with no timings. */
+export function stripTimings(groups: Group[]): Group[] {
+  return groups.filter((g) => g.words.length > 0).map((g) => withStart(g, null));
 }
 
-/** Lines with words in them (empty timed lines are gaps, not lyrics). */
-export function lyricLineCount(lines: LrcLine[]): number {
-  return lines.filter((l) => l.text.trim() !== "").length;
+/** Groups with words in them. */
+export function lyricLineCount(groups: Group[]): number {
+  return groups.filter((g) => g.words.length > 0).length;
 }

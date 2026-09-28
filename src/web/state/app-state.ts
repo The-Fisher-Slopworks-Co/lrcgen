@@ -1,7 +1,7 @@
 // The app's single store: what the server told us (app info, settings, jobs) and the open song
 // (draft, track, undo history, selection, autosave status). Change it only through ./actions.
 
-import type { LrcDocument } from "../../core/lrc-document";
+import type { LyricsDoc } from "../../core/lyrics";
 import type { AppInfo, Draft, JobState, TrackInfo, Transcript, WebSettings } from "../../shared/api";
 import type { SaveStatus } from "./autosave";
 import type { History } from "./history";
@@ -17,8 +17,9 @@ export interface Toast {
 }
 
 export interface Selection {
+  /** The selected group (line); its index in the document. */
   line: number;
-  /** Selected word within the line (Words/Refine), or null for the whole line. */
+  /** Selected word within the group (Words/Refine), or null for the whole group. */
   word: number | null;
 }
 
@@ -27,7 +28,7 @@ export interface SongState {
   draft: Draft;
   /** Null until loaded (or if the audio file went missing). */
   track: TrackInfo | null;
-  history: History<LrcDocument>;
+  history: History<LyricsDoc>;
   selection: Selection;
   saveStatus: SaveStatus;
   saveError: string | null;

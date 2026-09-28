@@ -1,9 +1,9 @@
-import type { LrcLine, LrcWord } from "../../core/lrc-document";
-import { hasWordTimings, lineEnd } from "../../core/lrc-document";
-import { LRC_TIME_PATTERN, lrcToMs, msToLrc } from "../../core/time-utils";
+import type { LrcLine, LrcWord } from "../../core/lrc-lines";
+import { LRC_TIME_PATTERN, lrcToMs } from "../../core/time-utils";
 
 // Enhanced LRC (A2) word tags: "[00:12.00]<00:12.00>Never <00:12.48>gonna <00:12.90>give<00:14.20>".
-// Each <time> starts the text after it; a trailing <time> marks when the last word ends.
+// Each <time> starts the text after it. A <time> followed by nothing but a space is a pause: the word before it
+// ends there. A trailing <time> marks when the last word ends. Writing them is core/lrc-export's job.
 const WORD_TAG = new RegExp(`<(${LRC_TIME_PATTERN})>`);
 
 export function parseWordTags(content: string): Pick<LrcLine, "text" | "words" | "end"> {
@@ -27,6 +27,8 @@ export function parseWordTags(content: string): Pick<LrcLine, "text" | "words" |
   const words: LrcWord[] = [];
   let text = "";
   for (const piece of pieces) {
+    const prev = words[words.length - 1];
+    if (piece.text.trim() === "" && piece.start !== null && prev && (prev.start === null || piece.start > prev.start)) prev.end = piece.start;
     let chunk = piece.text.replace(/\s+/g, " ");
     if (text === "" || text.endsWith(" ")) {
       chunk = chunk.trimStart();
@@ -47,14 +49,4 @@ export function parseWordTags(content: string): Pick<LrcLine, "text" | "words" |
 
   if (!words.some((w) => w.start !== null)) return { text };
   return end === null ? { text, words } : { text, words, end };
-}
-
-export function formatWordTags(line: LrcLine): string {
-  if (!hasWordTimings(line)) return line.text.trim();
-  // Enhanced LRC has no way to mark one word as untimed, so a word without a time rides along with the one before it
-  // (it lights up with it and reads back as part of that joined word); untimed words before the first timed one stay
-  // untagged and read back as untimed. The draft, not the .lrc, keeps the exact split.
-  const content = line.words!.map((w) => (w.start !== null ? `<${msToLrc(w.start)}>` : "") + w.text).join("");
-  const end = lineEnd(line);
-  return end === null ? content : `${content.trimEnd()}<${msToLrc(end)}>`;
 }

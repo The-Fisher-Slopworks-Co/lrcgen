@@ -1,4 +1,4 @@
-import type { LrcLine } from "../core/lrc-document";
+import type { Group } from "../core/lyrics";
 import type { TranscribeStage } from "../core/transcribe-protocol";
 import type { TranscriptionSettings } from "../core/settings-defaults";
 
@@ -24,7 +24,7 @@ export interface TranscribeOptions {
 
 export interface TranscribeResult {
   success: boolean;
-  lines?: LrcLine[];
+  groups?: Group[];
   rawLyrics?: string;
   error?: string;
 }
